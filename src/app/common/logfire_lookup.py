@@ -7,10 +7,12 @@ from typing import Dict, Sequence
 
 try:
     from logfire.query_client import LogfireQueryClient
-except ImportError as e:
-    raise ImportError(
-        "logfire package is required for get_weekly_stats. Install with: pip install logfire"
-    ) from e
+    _logfire_import_error: Exception | None = None
+except Exception as e:  # pragma: no cover - exercised in production without logfire
+    # Logfire is an optional dependency in production. When it's not installed we
+    # still want /stats to work and simply return zeroes instead of crashing.
+    LogfireQueryClient = None  # type: ignore[assignment]
+    _logfire_import_error = e
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +20,30 @@ _client: LogfireQueryClient | None = None
 
 
 def _get_client() -> LogfireQueryClient:
-    """Get or create the LogfireQueryClient singleton."""
+    """Get or create the LogfireQueryClient singleton.
+
+    This function is intentionally tolerant of missing logfire in production:
+    when the import failed at module import time we surface a clear exception
+    that callers of get_weekly_stats catch and degrade to zero stats.
+    """
     global _client
+
+    if _logfire_import_error is not None:
+        raise RuntimeError(
+            "logfire is not installed, weekly stats queries are disabled"
+        ) from _logfire_import_error
+
     if _client is None:
         import os
 
         if token := os.getenv("LOGFIRE_READ_TOKEN"):
-            _client = LogfireQueryClient(token)
+            _client = LogfireQueryClient(token)  # type: ignore[call-arg]
         else:
             raise ValueError(
                 "LOGFIRE_READ_TOKEN environment variable is required for Logfire queries. "
                 "Please set it to your Logfire read token."
             )
+
     return _client
 
 
