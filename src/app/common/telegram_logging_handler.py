@@ -38,8 +38,11 @@ class TelegramLogHandler(logging.Handler):
         self._sent_timestamps: Deque[float] = deque(maxlen=throttling_capacity)
         self._throttling_window = throttling_window
         self._dedupe_window = dedupe_window
-        self._last_text: Optional[str] = None
-        self._last_sent_at: float = 0.0
+        # Deduplicate by rendered message content across the whole dedupe window.
+        # The previous implementation deduped only *consecutive* identical messages,
+        # which still allowed "repetitive logs" when interleaved with other messages.
+        self._text_last_sent_at: dict[str, float] = {}
+        self._dedupe_cache_maxlen: int = 200
         self._send_task: Optional[asyncio.Task] = None
         self._shutdown_flag = False
 
@@ -71,16 +74,17 @@ class TelegramLogHandler(logging.Handler):
 
             # Bypass throttling for ERROR and CRITICAL level messages (keep deduplication)
             bypass_throttling = record.levelno >= logging.ERROR
-
-            if self._should_dedupe(text):
-                return
-
-            if not bypass_throttling and not self._allow_throughput():
-                return
-
             now = time.monotonic()
-            self._last_text = text
-            self._last_sent_at = now
+
+            if self._should_dedupe(text, now):
+                return
+
+            if not bypass_throttling and not self._allow_throughput(now):
+                return
+
+            # Update dedupe cache only for messages that we actually enqueue/send.
+            self._text_last_sent_at[text] = now
+            self._cleanup_dedupe_cache(now)
             if not bypass_throttling:
                 self._sent_timestamps.append(now)
 
@@ -185,8 +189,7 @@ class TelegramLogHandler(logging.Handler):
             disable_web_page_preview=True,
         )
 
-    def _allow_throughput(self) -> bool:
-        now = time.monotonic()
+    def _allow_throughput(self, now: float) -> bool:
         while (
             self._sent_timestamps
             and now - self._sent_timestamps[0] > self._throttling_window
@@ -195,9 +198,33 @@ class TelegramLogHandler(logging.Handler):
         limit = self._sent_timestamps.maxlen or 0
         return True if limit <= 0 else len(self._sent_timestamps) < limit
 
-    def _should_dedupe(self, text: str) -> bool:
-        if not self._last_text:
+    def _should_dedupe(self, text: str, now: float) -> bool:
+        last_sent_at = self._text_last_sent_at.get(text)
+        if last_sent_at is None:
             return False
-        if text != self._last_text:
+        # If the last send is older than the dedupe window, allow and let callers
+        # overwrite the timestamp.
+        if now - last_sent_at >= self._dedupe_window:
             return False
-        return (time.monotonic() - self._last_sent_at) < self._dedupe_window
+        return True
+
+    def _cleanup_dedupe_cache(self, now: float) -> None:
+        # Keep the dict bounded and remove expired entries.
+        expired_keys = [
+            text for text, last_sent_at in self._text_last_sent_at.items()
+            if now - last_sent_at >= self._dedupe_window
+        ]
+        for text in expired_keys:
+            self._text_last_sent_at.pop(text, None)
+
+        if len(self._text_last_sent_at) <= self._dedupe_cache_maxlen:
+            return
+
+        # Evict oldest entries when the cache grows too large.
+        # (Linear-time sort is OK here because cache is capped and small.)
+        keep = sorted(
+            self._text_last_sent_at.items(),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )[: self._dedupe_cache_maxlen]
+        self._text_last_sent_at = dict(keep)
