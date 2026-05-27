@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from ..common.trace_context import get_root_span
 
 from ..common.bot import bot
+from ..common.telegram_errors import is_permission_error
 from ..common.notifications import notify_admins_with_fallback_and_cleanup
 from ..common.utils import (
     format_chat_or_channel_display,
@@ -450,17 +451,7 @@ async def handle_member_service_message(message: types.Message) -> str:
             )
             return "service_message_deleted"
         except TelegramBadRequest as e:
-            # Check for deletion errors that indicate permission issues
-            error_message = str(e).lower()
-            is_deletion_error = (
-                "not enough rights" in error_message
-                or "need administrator rights" in error_message
-                or "chat admin required" in error_message
-                or "can_delete_messages" in error_message
-                or "message can't be deleted" in error_message
-            )
-
-            if is_deletion_error:
+            if is_permission_error(e):
                 logger.warning(
                     f"Cannot delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
                     exc_info=True,

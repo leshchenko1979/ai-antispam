@@ -5,3 +5,4 @@ from .message import *  # Import functions from the message processing submodule
 from .payment_handlers import *
 from .private_handlers import *
 from .status_handlers import *
+from .error_handlers import *  # noqa: F403 — registers @dp.errors() last

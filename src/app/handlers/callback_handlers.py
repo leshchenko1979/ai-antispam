@@ -4,6 +4,7 @@ import logging
 
 from aiogram import F, types
 from aiogram.exceptions import TelegramBadRequest
+from ..common.telegram_errors import is_message_not_found_error
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..common.bot import bot
@@ -275,7 +276,7 @@ async def handle_spam_confirm_callback(callback: CallbackQuery) -> str:
 
             await delete_original_message()
         except TelegramBadRequest as e:
-            if "message to delete not found" in e.message:
+            if is_message_not_found_error(e):
                 logger.info(
                     f"Message to delete not found (likely already deleted): {chat_id}:{message_id}"
                 )

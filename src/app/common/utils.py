@@ -7,46 +7,96 @@ from typing import Any, Dict, Optional
 
 import yaml
 from aiogram import types
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramNetworkError,
+    TelegramNotFound,
+    TelegramRetryAfter,
+    TelegramServerError,
+)
 from aiohttp import ClientError, ClientOSError
 from tenacity import (
+    RetryCallState,
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
 logger = logging.getLogger(__name__)
 
-# Network errors that should be retried
-RETRYABLE_ERRORS = (
-    ClientOSError,  # Connection reset by peer, etc.
-    ClientError,  # Other aiohttp client errors
-    OSError,  # Low-level OS errors
-    ConnectionError,  # Generic connection errors
-    TimeoutError,  # Timeout errors
+# Low-level / transport errors retried by retry_on_network_error
+_RETRYABLE_TRANSPORT_ERRORS = (
+    ClientOSError,
+    ClientError,
+    OSError,
+    ConnectionError,
+    TimeoutError,
+    TelegramNetworkError,
+    TelegramServerError,
+    TelegramRetryAfter,
 )
 
-# Permanent errors that should not be retried
-PERMANENT_ERRORS = (TelegramBadRequest,)  # User blocked bot, chat not found, etc.
+# Telegram API errors that must not be retried (permanent or domain-handled)
+_NON_RETRYABLE_TELEGRAM_API = (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramNotFound,
+)
 
-# Tenacity retry decorator for network operations
-retry_on_network_error = retry(
-    stop=stop_after_attempt(4),  # 4 attempts total (1 initial + 3 retries)
-    wait=wait_exponential(multiplier=0.5, min=0.5, max=10),  # 0.5s to 10s backoff
-    retry=retry_if_exception_type(RETRYABLE_ERRORS),
-    reraise=True,  # Re-raise the last exception if all retries fail
-    before_sleep=lambda retry_state: (
+
+def _is_retryable_network_error(exc: BaseException) -> bool:
+    if isinstance(exc, _NON_RETRYABLE_TELEGRAM_API):
+        return False
+    if isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS):
+        return True
+    if isinstance(exc, TelegramAPIError):
+        return False
+    return False
+
+
+_EXPONENTIAL_WAIT = wait_exponential(multiplier=0.5, min=0.5, max=10)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    """Single wait per retry: honor Telegram flood control or exponential backoff."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, TelegramRetryAfter):
+        return float(min(exc.retry_after, 30))
+    return _EXPONENTIAL_WAIT(retry_state)
+
+
+async def _retry_before_sleep(retry_state: RetryCallState) -> None:
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, TelegramRetryAfter):
+        delay = _retry_wait(retry_state)
         logger.info(
-            f"Retryable error on attempt {retry_state.attempt_number}/4: "
-            f"{retry_state.outcome.exception() if retry_state.outcome else 'Unknown error'}. Retrying..."
+            "Telegram flood control on attempt %s/4, sleeping %ss",
+            retry_state.attempt_number,
+            delay,
         )
-        if retry_state.attempt_number <= 3
-        else logger.warning(
-            f"All retries failed with error: {retry_state.outcome.exception() if retry_state.outcome else 'Unknown error'}",
+    elif retry_state.attempt_number <= 3:
+        logger.info(
+            "Retryable error on attempt %s/4: %s. Retrying...",
+            retry_state.attempt_number,
+            exc,
+        )
+    else:
+        logger.warning(
+            "All retries failed with error: %s",
+            exc,
             exc_info=True,
         )
-    ),
+
+
+retry_on_network_error = retry(
+    stop=stop_after_attempt(4),
+    wait=_retry_wait,
+    retry=retry_if_exception(_is_retryable_network_error),
+    reraise=True,
+    before_sleep=_retry_before_sleep,
 )
 
 
