@@ -8,7 +8,7 @@ from typing import Dict, Sequence
 try:
     from logfire.query_client import LogfireQueryClient
     _logfire_import_error: Exception | None = None
-except Exception as e:  # pragma: no cover - exercised in production without logfire
+except (ImportError, ModuleNotFoundError) as e:  # pragma: no cover
     # Logfire is an optional dependency in production. When it's not installed we
     # still want /stats to work and simply return zeroes instead of crashing.
     LogfireQueryClient = None  # type: ignore[assignment]
