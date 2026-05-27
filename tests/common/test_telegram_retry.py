@@ -64,4 +64,4 @@ async def test_retry_on_network_error_honors_retry_after(monkeypatch):
 
     assert await flood() == "ok"
     assert calls == 2
-    assert sleeps[0] == 2
+    assert sleeps == [2]

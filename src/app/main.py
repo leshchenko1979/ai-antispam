@@ -289,8 +289,10 @@ async def handle_unhandled_exception(
                 status=503,
             )
         logger.warning(
-            "Transient webhook error but no time for retries (elapsed=%.2fs)",
+            "Transient webhook error but no time for retries (elapsed=%.2fs): %s",
             elapsed,
+            e,
+            exc_info=True,
         )
         return web.json_response(
             {"message": "Transient error but no time for retries", "elapsed": elapsed}

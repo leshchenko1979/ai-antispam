@@ -41,10 +41,10 @@ async def handle_dispatcher_error(event: ErrorEvent) -> None:
 
     logger.error("Unhandled exception in dispatcher: %s", exc, exc_info=True)
 
-    await _try_user_feedback(event)
-
     if is_webhook_retryable(exc):
         raise exc
+
+    await _try_user_feedback(event)
 
 
 async def _try_user_feedback(event: ErrorEvent) -> None:
