@@ -20,38 +20,25 @@ logger = logging.getLogger(__name__)
 async def perform_complete_group_cleanup(group_id: int) -> bool:
     """Perform complete group cleanup: leave chat and clean database. Returns success status."""
     try:
-        # Leave the group first. If the bot is already gone (kicked, left, deleted chat),
-        # proceed with DB cleanup so stale rows do not linger.
-        try:
-            await bot.leave_chat(group_id)
-        except Exception as leave_e:
-            if is_group_inaccessible_error(leave_e):
-                logger.info(
-                    f"Group {group_id} already inaccessible during leave, proceeding with DB cleanup"
-                )
-            else:
-                raise
+        await bot.leave_chat(group_id)
+    except Exception as leave_e:
+        if is_group_inaccessible_error(leave_e):
+            logger.info(
+                f"Group {group_id} already inaccessible during leave, proceeding with DB cleanup"
+            )
+        else:
+            logger.error(
+                f"Failed to leave group {group_id}: {leave_e}",
+                exc_info=True,
+            )
+            return False
 
+    try:
         await cleanup_group_data(group_id)
         return True
-
-    except Exception as cleanup_e:
-        if is_group_inaccessible_error(cleanup_e):
-            try:
-                await cleanup_group_data(group_id)
-                logger.info(
-                    f"Group {group_id} already inaccessible, cleaned up stale DB records"
-                )
-                return True
-            except Exception as db_e:
-                logger.error(
-                    f"Failed to clean DB for inaccessible group {group_id}: {db_e}",
-                    exc_info=True,
-                )
-                return False
-
+    except Exception as db_e:
         logger.error(
-            f"Failed to perform complete cleanup for group {group_id}: {cleanup_e}",
+            f"Failed to clean DB for group {group_id}: {db_e}",
             exc_info=True,
         )
         return False
