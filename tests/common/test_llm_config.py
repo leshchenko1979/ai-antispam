@@ -113,5 +113,5 @@ def test_project_config_yaml_is_valid():
     reset_llm_config_validation()
     validate_llm_config()
     models = get_openrouter_models()
-    assert len(models) == 6
-    assert models[0].startswith("meta-llama/")
+    assert len(models) == 2
+    assert models[0].startswith("deepseek/")
