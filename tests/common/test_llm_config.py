@@ -6,6 +6,7 @@ from app.common.utils import (
     get_llm_http_client_timeout,
     get_llm_route_timeout,
     get_openrouter_models,
+    load_config,
     reset_llm_config_validation,
     validate_llm_config,
 )
@@ -111,7 +112,8 @@ def test_validate_rejects_invalid_config(config, match):
 
 def test_project_config_yaml_is_valid():
     reset_llm_config_validation()
+    expected_models = load_config()["llm"]["openrouter_models"]
     validate_llm_config()
     models = get_openrouter_models()
-    assert len(models) == 2
-    assert models[0].startswith("deepseek/")
+    assert set(models) == set(expected_models)
+    assert len(models) == len(expected_models)
