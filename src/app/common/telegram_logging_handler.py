@@ -8,6 +8,8 @@ from typing import Deque, Optional
 
 from aiogram import Bot
 
+_DEDUPE_CACHE_MAXLEN = 200
+
 
 class TelegramLogHandler(logging.Handler):
     """
@@ -42,7 +44,6 @@ class TelegramLogHandler(logging.Handler):
         # The previous implementation deduped only *consecutive* identical messages,
         # which still allowed "repetitive logs" when interleaved with other messages.
         self._text_last_sent_at: dict[str, float] = {}
-        self._dedupe_cache_maxlen: int = 200
         self._send_task: Optional[asyncio.Task] = None
         self._shutdown_flag = False
 
@@ -209,15 +210,12 @@ class TelegramLogHandler(logging.Handler):
         return True
 
     def _cleanup_dedupe_cache(self, now: float) -> None:
-        # Keep the dict bounded and remove expired entries.
-        expired_keys = [
-            text for text, last_sent_at in self._text_last_sent_at.items()
-            if now - last_sent_at >= self._dedupe_window
-        ]
-        for text in expired_keys:
-            self._text_last_sent_at.pop(text, None)
+        # Keep the dict bounded and remove expired entries in place.
+        for text in list(self._text_last_sent_at):
+            if now - self._text_last_sent_at[text] >= self._dedupe_window:
+                del self._text_last_sent_at[text]
 
-        if len(self._text_last_sent_at) <= self._dedupe_cache_maxlen:
+        if len(self._text_last_sent_at) <= _DEDUPE_CACHE_MAXLEN:
             return
 
         # Evict oldest entries when the cache grows too large.
@@ -226,5 +224,5 @@ class TelegramLogHandler(logging.Handler):
             self._text_last_sent_at.items(),
             key=lambda kv: kv[1],
             reverse=True,
-        )[: self._dedupe_cache_maxlen]
+        )[:_DEDUPE_CACHE_MAXLEN]
         self._text_last_sent_at = dict(keep)
