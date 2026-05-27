@@ -5,10 +5,11 @@ import logging
 from typing import Optional
 
 from aiogram import types
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..common.bot import bot
+from ..common.telegram_errors import is_group_inaccessible_error, is_permission_error
 from ..common.mcp_client import McpHttpError, get_mcp_client
 from ..common.notifications import notify_admins_with_fallback_and_cleanup
 
@@ -58,49 +59,44 @@ async def handle_spam(
     confidence: int | None = None,
 ) -> str:
     """Handle detected spam: notify admins, optionally delete and ban."""
-    try:
-        if not message.from_user:
-            logger.warning("Message without user info, skipping spam handling")
+    if not message.from_user:
+        logger.warning("Message without user info, skipping spam handling")
+        return "spam_no_user_info"
+
+    all_admins_delete = await check_admin_delete_preferences(admin_ids)
+    effective_all_admins_delete = all_admins_delete and not skip_auto_delete
+
+    notification_sent = await notify_admins(
+        message,
+        effective_all_admins_delete,
+        admin_ids,
+        reason,
+        message_context_result,
+        is_low_confidence_not_spam=is_low_confidence_not_spam,
+        confidence=confidence,
+    )
+
+    if (
+        message_context_result
+        and message_context_result.linked_channel_found
+        and not is_low_confidence_not_spam
+    ):
+        await notify_spam_contacts_via_mcp(message, reason, message_context_result)
+
+    if effective_all_admins_delete:
+        effective_user_id = determine_effective_user_id(message)
+        if effective_user_id is None:
+            logger.warning("Message without effective user info, skipping ban")
             return "spam_no_user_info"
-
-        all_admins_delete = await check_admin_delete_preferences(admin_ids)
-        effective_all_admins_delete = all_admins_delete and not skip_auto_delete
-
-        notification_sent = await notify_admins(
-            message,
-            effective_all_admins_delete,
-            admin_ids,
-            reason,
-            message_context_result,
-            is_low_confidence_not_spam=is_low_confidence_not_spam,
-            confidence=confidence,
+        await handle_spam_message_deletion(message, admin_ids)
+        await ban_user_for_spam(
+            message.chat.id, effective_user_id, admin_ids, message.chat.title
         )
+        return "spam_auto_deleted"
 
-        if (
-            message_context_result
-            and message_context_result.linked_channel_found
-            and not is_low_confidence_not_spam
-        ):
-            await notify_spam_contacts_via_mcp(message, reason, message_context_result)
-
-        if effective_all_admins_delete:
-            effective_user_id = determine_effective_user_id(message)
-            if effective_user_id is None:
-                logger.warning("Message without effective user info, skipping ban")
-                return "spam_no_user_info"
-            await handle_spam_message_deletion(message, admin_ids)
-            await ban_user_for_spam(
-                message.chat.id, effective_user_id, admin_ids, message.chat.title
-            )
-            return "spam_auto_deleted"
-
-        return (
-            "spam_admins_notified" if notification_sent else "spam_notification_failed"
-        )
-
-    except Exception as e:
-        logger.error(f"Error handling spam: {e}", exc_info=True)
-        raise
+    return (
+        "spam_admins_notified" if notification_sent else "spam_notification_failed"
+    )
 
 
 async def check_admin_delete_preferences(admin_ids: list[int]) -> bool:
@@ -203,53 +199,40 @@ async def handle_permission_error(
     lang: str = "en",
 ) -> bool:
     """Detect permission error, notify admins, return True if it was a permission error."""
-    if not isinstance(error, TelegramBadRequest):
+    if not is_permission_error(error):
         return False
 
-    error_message = str(error).lower()
-    is_permission_error = (
-        "not enough rights" in error_message
-        or "need administrator rights" in error_message
-        or "chat admin required" in error_message
-        or "can_delete_messages" in error_message
-        or "can_restrict_members" in error_message
-        or "message can't be deleted" in error_message
+    logger.warning(
+        f"Cannot {action_description} in chat {chat_id}: {error}",
+        exc_info=True,
     )
-
-    if is_permission_error:
-        logger.warning(
-            f"Cannot {action_description} in chat {chat_id}: {error}",
-            exc_info=True,
-        )
-        await set_no_rights_detected_at(chat_id)
-        if admin_ids:
-            try:
-                display_title = group_title or str(chat_id)
-                group_msg_tpl = t(
-                    lang,
-                    "spam.group_no_permission",
-                    mention="{mention}",
-                    permission=permission_name,
-                )
-                await notify_admins_with_fallback_and_cleanup(
-                    bot,
-                    admin_ids,
-                    chat_id,
-                    private_message=format_missing_permission_message(
-                        display_title, permission_name, group_username, lang=lang
-                    ),
-                    group_message_template=group_msg_tpl
-                    + t(lang, "spam.setup_guide_link", url=get_setup_guide_url()),
-                    cleanup_if_group_fails=True,
-                    parse_mode="HTML",
-                )
-            except Exception as notify_exc:
-                logger.warning(
-                    f"Failed to notify admins about missing rights for {action_description}: {notify_exc}"
-                )
-        return True
-
-    return False
+    await set_no_rights_detected_at(chat_id)
+    if admin_ids:
+        try:
+            display_title = group_title or str(chat_id)
+            group_msg_tpl = t(
+                lang,
+                "spam.group_no_permission",
+                mention="{mention}",
+                permission=permission_name,
+            )
+            await notify_admins_with_fallback_and_cleanup(
+                bot,
+                admin_ids,
+                chat_id,
+                private_message=format_missing_permission_message(
+                    display_title, permission_name, group_username, lang=lang
+                ),
+                group_message_template=group_msg_tpl
+                + t(lang, "spam.setup_guide_link", url=get_setup_guide_url()),
+                cleanup_if_group_fails=True,
+                parse_mode="HTML",
+            )
+        except Exception as notify_exc:
+            logger.warning(
+                f"Failed to notify admins about missing rights for {action_description}: {notify_exc}"
+            )
+    return True
 
 
 def format_admin_notification_message(
@@ -449,7 +432,15 @@ async def handle_spam_message_deletion(
         logger.info(
             f"Deleted spam message {message.message_id} in chat {message.chat.id}"
         )
-    except TelegramBadRequest as e:
+    except (TelegramBadRequest, TelegramForbiddenError) as e:
+        if is_group_inaccessible_error(e):
+            logger.info(
+                "Cannot delete spam message %s in chat %s (group inaccessible): %s",
+                message.message_id,
+                message.chat.id,
+                e,
+            )
+            return
         lang = await _get_notification_lang(admin_ids)
         perm_name = t(lang, "spam.permission_delete")
         if not await handle_permission_error(
@@ -462,7 +453,6 @@ async def handle_spam_message_deletion(
             getattr(message.chat, "username", None),
             lang=lang,
         ):
-            # Not a permission error, log as general error
             logger.warning(
                 f"Could not delete spam message {message.message_id} in chat {message.chat.id}: {e}",
                 exc_info=True,
@@ -487,7 +477,15 @@ async def ban_user_for_spam(
 
         await ban_spam_user()
         logger.info(f"Banned user {user_id} in chat {chat_id} for spam")
-    except TelegramBadRequest as e:
+    except (TelegramBadRequest, TelegramForbiddenError) as e:
+        if is_group_inaccessible_error(e):
+            logger.info(
+                "Cannot ban user %s in chat %s (group inaccessible): %s",
+                user_id,
+                chat_id,
+                e,
+            )
+            return
         lang = await _get_notification_lang(admin_ids or [])
         perm_name = t(lang, "spam.permission_ban")
         if not await handle_permission_error(
@@ -499,7 +497,6 @@ async def ban_user_for_spam(
             "ban user",
             lang=lang,
         ):
-            # Not a permission error, log as general error
             logger.warning(
                 f"Failed to ban user {user_id} in chat {chat_id}: {e}", exc_info=True
             )

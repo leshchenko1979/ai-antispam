@@ -29,6 +29,7 @@ from .common.bot import bot
 from .common.trace_context import set_root_span
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
 from .common.mcp_client import close_mcp_http_client
+from .common.telegram_errors import is_webhook_retryable
 from .common.utils import get_dotted_path, get_webhook_timeout, validate_llm_config
 from .database.postgres_connection import close_pool
 from .handlers.dp import dp
@@ -95,7 +96,8 @@ async def handle_update(request: web.Request) -> web.Response:
             return await handle_temporary_error(span, e, elapsed, remaining)
 
         except Exception as e:
-            return await handle_unhandled_exception(span, e, json)
+            elapsed = time.time() - start_time
+            return await handle_unhandled_exception(span, e, json, elapsed)
 
         finally:
             if update_time := get_dotted_path(json, "*.edit_date") or get_dotted_path(
@@ -268,18 +270,38 @@ async def handle_temporary_error(
 
 
 async def handle_unhandled_exception(
-    span: logfire.LogfireSpan, e: Exception, json: dict
+    span: logfire.LogfireSpan, e: Exception, json: dict, elapsed: float
 ) -> web.Response:
-    """Handle any unhandled exception"""
-    span.tags = ["unhandled_exception"]
+    """Handle exceptions that escape feed_raw_update (often re-raised from @dp.errors())."""
     span.record_exception(e)
 
-    logger.error(
-        "Unhandled exception in webhook: %s",
-        e,
-        exc_info=(type(e), e, e.__traceback__),
-    )
+    if is_webhook_retryable(e):
+        remaining = WEBHOOK_TIMEOUT - elapsed
+        span.tags = ["webhook_retryable_error"]
+        if remaining >= 5:
+            logger.warning(
+                "Transient webhook error, requesting Telegram retry: %s",
+                e,
+                exc_info=True,
+            )
+            return web.json_response(
+                {"error": "Transient processing error", "retry": True},
+                status=503,
+            )
+        logger.warning(
+            "Transient webhook error but no time for retries (elapsed=%.2fs)",
+            elapsed,
+        )
+        return web.json_response(
+            {"message": "Transient error but no time for retries", "elapsed": elapsed}
+        )
 
+    span.tags = ["unhandled_exception"]
+    logger.warning(
+        "Webhook error acknowledged without retry: %s",
+        e,
+        exc_info=True,
+    )
     return web.json_response({"message": "Error processing request"})
 
 
