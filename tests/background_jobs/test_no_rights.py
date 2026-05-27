@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from app.background_jobs.no_rights import leave_no_rights_groups
 
@@ -129,3 +130,115 @@ async def test_leave_no_rights_groups_empty_list_returns_early():
 
         mock_cleanup.assert_not_called()
         mock_bot.me.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_leave_no_rights_groups_cleans_stale_group_chat_not_found():
+    """When rights check fails with chat not found, still run stale cleanup."""
+    bad_request = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: chat not found"
+    )
+
+    with (
+        patch("app.background_jobs.no_rights.load_config") as mock_load,
+        patch(
+            "app.background_jobs.no_rights.get_groups_with_no_rights_past_grace"
+        ) as mock_get,
+        patch("app.background_jobs.no_rights.bot") as mock_bot,
+        patch(
+            "app.background_jobs.no_rights.get_group", new_callable=AsyncMock
+        ) as mock_get_group,
+        patch(
+            "app.background_jobs.no_rights.perform_complete_group_cleanup",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_cleanup,
+        patch(
+            "app.background_jobs.no_rights.send_admin_dm",
+            new_callable=AsyncMock,
+        ) as mock_send,
+        patch(
+            "app.background_jobs.no_rights.get_admin",
+            new_callable=AsyncMock,
+            return_value=MagicMock(is_active=True, language_code="en"),
+        ),
+    ):
+        mock_load.return_value = {"billing": {"no_rights_grace_days": 7}}
+        mock_get.return_value = [-1001234567890]
+        mock_bot.me = AsyncMock(return_value=MagicMock(id=999, username="test_bot"))
+        mock_bot.get_chat = AsyncMock(
+            return_value=MagicMock(title="Stale Group", username=None)
+        )
+        mock_bot.get_chat_member = AsyncMock(side_effect=bad_request)
+
+        from app.database.models import Group
+
+        mock_get_group.return_value = Group(
+            group_id=-1001234567890,
+            admin_ids=[111],
+            moderation_enabled=True,
+            member_ids=[],
+            created_at=datetime.now(timezone.utc),
+            last_updated=datetime.now(timezone.utc),
+        )
+
+        await leave_no_rights_groups()
+
+        mock_cleanup.assert_called_once_with(-1001234567890)
+        mock_send.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_leave_no_rights_groups_cleans_stale_group_bot_kicked():
+    """When rights check fails because bot was kicked, still run stale cleanup."""
+    forbidden = TelegramForbiddenError(
+        method=MagicMock(),
+        message="Forbidden: bot was kicked from the supergroup chat",
+    )
+
+    with (
+        patch("app.background_jobs.no_rights.load_config") as mock_load,
+        patch(
+            "app.background_jobs.no_rights.get_groups_with_no_rights_past_grace"
+        ) as mock_get,
+        patch("app.background_jobs.no_rights.bot") as mock_bot,
+        patch(
+            "app.background_jobs.no_rights.get_group", new_callable=AsyncMock
+        ) as mock_get_group,
+        patch(
+            "app.background_jobs.no_rights.perform_complete_group_cleanup",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_cleanup,
+        patch(
+            "app.background_jobs.no_rights.send_admin_dm",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "app.background_jobs.no_rights.get_admin",
+            new_callable=AsyncMock,
+            return_value=MagicMock(is_active=True, language_code="en"),
+        ),
+    ):
+        mock_load.return_value = {"billing": {"no_rights_grace_days": 7}}
+        mock_get.return_value = [-1009876543210]
+        mock_bot.me = AsyncMock(return_value=MagicMock(id=999, username="test_bot"))
+        mock_bot.get_chat = AsyncMock(
+            return_value=MagicMock(title="Kicked Group", username=None)
+        )
+        mock_bot.get_chat_member = AsyncMock(side_effect=forbidden)
+
+        from app.database.models import Group
+
+        mock_get_group.return_value = Group(
+            group_id=-1009876543210,
+            admin_ids=[222],
+            moderation_enabled=True,
+            member_ids=[],
+            created_at=datetime.now(timezone.utc),
+            last_updated=datetime.now(timezone.utc),
+        )
+
+        await leave_no_rights_groups()
+
+        mock_cleanup.assert_called_once_with(-1009876543210)

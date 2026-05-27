@@ -1,4 +1,8 @@
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from app.database import (
     Administrator,
@@ -6,6 +10,7 @@ from app.database import (
     clear_no_rights_detected_at,
     deduct_credits_from_admins,
     get_admin_group_ids,
+    get_admin_groups,
     get_groups_with_no_rights_past_grace,
     get_moderation_event_count,
     get_paying_admins,
@@ -198,6 +203,97 @@ async def test_deduct_credits_sets_credits_depleted_at_when_zero(
         )
         assert row["credits"] == 0
         assert row["credits_depleted_at"] is not None
+
+
+async def _seed_admin_group(clean_db, admin_id: int, group_id: int) -> None:
+    async with clean_db.acquire() as conn:
+        await conn.execute("INSERT INTO groups (group_id, title) VALUES ($1, 'Stale')", group_id)
+        await conn.execute(
+            "INSERT INTO administrators (admin_id, username, credits) VALUES ($1, 'admin', 10)",
+            admin_id,
+        )
+        await conn.execute(
+            "INSERT INTO group_administrators (group_id, admin_id) VALUES ($1, $2)",
+            group_id,
+            admin_id,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        TelegramBadRequest(
+            method=MagicMock(), message="Bad Request: chat not found"
+        ),
+        TelegramForbiddenError(
+            method=MagicMock(), message="Forbidden: bot was kicked from the group chat"
+        ),
+    ],
+)
+async def test_get_admin_groups_inaccessible_logs_info_and_cleans_db(
+    patched_db_conn, clean_db, caplog, error
+):
+    """Inaccessible groups during stats: INFO log, skip list, DB cleanup."""
+    admin_id = 9001
+    group_id = -1009001
+    await _seed_admin_group(clean_db, admin_id, group_id)
+
+    with patch("app.database.group_operations.bot") as mock_bot:
+        mock_bot.get_chat = AsyncMock(side_effect=error)
+        with caplog.at_level(logging.INFO, logger="app.database.group_operations"):
+            groups = await get_admin_groups(admin_id)
+
+    assert groups == []
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+    assert any("inaccessible during admin stats" in r.message for r in caplog.records)
+
+    async with clean_db.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM groups WHERE group_id = $1", group_id)
+        assert row is None
+
+
+@pytest.mark.asyncio
+async def test_get_admin_groups_unexpected_telegram_error_logs_error(
+    patched_db_conn, clean_db, caplog
+):
+    """Unexpected Telegram errors still log at ERROR without DB cleanup."""
+    admin_id = 9002
+    group_id = -1009002
+    await _seed_admin_group(clean_db, admin_id, group_id)
+    err = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: invalid chat id"
+    )
+
+    with patch("app.database.group_operations.bot") as mock_bot:
+        mock_bot.get_chat = AsyncMock(side_effect=err)
+        with caplog.at_level(logging.ERROR, logger="app.database.group_operations"):
+            groups = await get_admin_groups(admin_id)
+
+    assert groups == []
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+    assert not any("inaccessible during admin stats" in r.message for r in caplog.records)
+
+    async with clean_db.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM groups WHERE group_id = $1", group_id)
+        assert row is not None
+
+
+@pytest.mark.asyncio
+async def test_get_admin_groups_returns_accessible_chats(patched_db_conn, clean_db):
+    """Accessible groups are returned with live Telegram title."""
+    admin_id = 9003
+    group_id = -1009003
+    await _seed_admin_group(clean_db, admin_id, group_id)
+
+    chat = MagicMock(title="Live Group")
+    with patch("app.database.group_operations.bot") as mock_bot:
+        mock_bot.get_chat = AsyncMock(return_value=chat)
+        groups = await get_admin_groups(admin_id)
+
+    assert len(groups) == 1
+    assert groups[0]["id"] == group_id
+    assert groups[0]["title"] == "Live Group"
 
 
 @pytest.mark.asyncio

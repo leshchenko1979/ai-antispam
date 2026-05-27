@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+
 from src.app.common.notifications import notify_admins_with_fallback_and_cleanup
+from src.app.common.notifications import perform_complete_group_cleanup
 
 
 class TestNotifyAdminsWithCleanup:
@@ -98,3 +101,72 @@ class TestNotifyAdminsWithCleanup:
 
             # Should return no cleanup result
             assert result["group_cleaned_up"] is False
+
+
+@pytest.mark.asyncio
+async def test_perform_complete_group_cleanup_chat_not_found_still_cleans_db():
+    """When Telegram says chat not found, cleanup should still remove DB state."""
+    bad_request = TelegramBadRequest(
+        method=MagicMock(), message="Telegram server says - Bad Request: chat not found"
+    )
+
+    with (
+        patch(
+            "src.app.common.notifications.bot.leave_chat",
+            new_callable=AsyncMock,
+            side_effect=bad_request,
+        ),
+        patch(
+            "src.app.common.notifications.cleanup_group_data",
+            new_callable=AsyncMock,
+        ) as mock_cleanup,
+    ):
+        success = await perform_complete_group_cleanup(-1001234567890)
+
+    assert success is True
+    mock_cleanup.assert_called_once_with(-1001234567890)
+
+
+@pytest.mark.asyncio
+async def test_perform_complete_group_cleanup_bot_kicked_still_cleans_db():
+    """When bot was kicked, cleanup should still remove DB state."""
+    forbidden = TelegramForbiddenError(
+        method=MagicMock(),
+        message="Forbidden: bot was kicked from the supergroup chat",
+    )
+
+    with (
+        patch(
+            "src.app.common.notifications.bot.leave_chat",
+            new_callable=AsyncMock,
+            side_effect=forbidden,
+        ),
+        patch(
+            "src.app.common.notifications.cleanup_group_data",
+            new_callable=AsyncMock,
+        ) as mock_cleanup,
+    ):
+        success = await perform_complete_group_cleanup(-1001234567890)
+
+    assert success is True
+    mock_cleanup.assert_called_once_with(-1001234567890)
+
+
+@pytest.mark.asyncio
+async def test_perform_complete_group_cleanup_unexpected_error_returns_false():
+    """Unexpected leave errors should not be treated as success."""
+    with (
+        patch(
+            "src.app.common.notifications.bot.leave_chat",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("network down"),
+        ),
+        patch(
+            "src.app.common.notifications.cleanup_group_data",
+            new_callable=AsyncMock,
+        ) as mock_cleanup,
+    ):
+        success = await perform_complete_group_cleanup(-1001234567890)
+
+    assert success is False
+    mock_cleanup.assert_not_called()
