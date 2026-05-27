@@ -1,6 +1,7 @@
 ## Active Context
 
 - **Silent auto-delete mode (2026-05)**: ✅ **Shipped** — code + phase 1 migration + deploy; channel post https://t.me/ai_antispam/43; admin broadcast 252 DMs (2026-05-16). **Remaining**: phase 3 `--drop-delete-spam` when stable.
+- **Logfire trace 019e5fe5... cleanup fix (2026-05-27)**: ✅ **Complete** — `perform_complete_group_cleanup` now treats `TelegramBadRequest: chat not found` as "already absent in Telegram" and still executes DB cleanup. This prevents repeated no-rights scheduled-job exceptions for stale group IDs and preserves admin notification flow for successfully cleaned records. Test: `tests/common/test_notifications.py::test_perform_complete_group_cleanup_chat_not_found_still_cleans_db`.
 - **Test Infrastructure Fix (2026-05-16)**: ✅ **Fixed** — SQLite adapter in `tests/conftest.py` now preserves `RETURNING` clause and supports `ON CONFLICT DO UPDATE` queries. Fixed unique index mismatch for pending spam examples in schema and migrations.
 - **Copy Polish (2026-05-16)**: ✅ **Complete** — Replaced "DM" with "private message" / "личное сообщение" in locales and clarified the purpose of the "Not spam" button (fixing false positives) based on user feedback. Updated `opsPlaybook.md` with these copy rules.
 - **Member probation (2026-05)**: ✅ Shipped — `moderation_event_count`, edited-message moderation for probation members, `message_trusted_member_skipped`. **Deploy**: run `--add-moderation-event-count` on DB before new image. **Broadcast**: Sent update notification to 268 admins via VDS script.
