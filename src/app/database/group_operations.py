@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, cast
 from aiogram.exceptions import TelegramBadRequest
 
 from ..common.bot import bot
+from ..common.telegram_errors import is_group_inaccessible_error
 from ..common.utils import load_config
 from . import admin_operations
 from .models import Group
@@ -273,23 +274,23 @@ async def get_admin_groups(admin_id: int) -> List[Dict]:
                         "is_moderation_enabled": row["moderation_enabled"],
                     }
                 )
-            except TelegramBadRequest as e:
-                if "chat not found" in str(e).lower():
-                    logger.warning(
-                        f"Chat {row['group_id']} not found, will clean up",
-                        exc_info=True,
+            except Exception as e:
+                if is_group_inaccessible_error(e):
+                    logger.info(
+                        f"Group {row['group_id']} inaccessible during admin stats, "
+                        "skipping and cleaning up stale DB record"
                     )
                     inaccessible_groups.append(row["group_id"])
-                else:
+                elif isinstance(e, TelegramBadRequest):
                     logger.error(
                         f"Telegram error getting chat {row['group_id']}: {e}",
                         exc_info=True,
                     )
-                continue
-            except Exception as e:
-                logger.error(
-                    f"Error getting chat {row['group_id']}: {e}", exc_info=True
-                )
+                else:
+                    logger.error(
+                        f"Error getting chat {row['group_id']}: {e}",
+                        exc_info=True,
+                    )
                 continue
 
         # Clean up inaccessible groups (after the loop to avoid connection issues)

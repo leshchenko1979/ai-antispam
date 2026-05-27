@@ -11,6 +11,7 @@ from aiogram.types import ChatMemberAdministrator
 
 from ..common.bot import bot
 from ..common.notifications import perform_complete_group_cleanup
+from ..common.telegram_errors import is_group_inaccessible_error
 from ..common.utils import (
     format_chat_or_channel_display,
     get_add_to_group_url,
@@ -80,10 +81,16 @@ async def leave_no_rights_groups() -> None:
                 logger.info(f"Rights restored in group {group_id}, cleared flag")
                 skip_leave = True
         except Exception as e:
-            logger.warning(
-                f"Error checking rights in group {group_id}: {e}",
-                exc_info=True,
-            )
+            if is_group_inaccessible_error(e):
+                logger.info(
+                    f"Group {group_id} already inaccessible during rights check, "
+                    "proceeding with stale cleanup"
+                )
+            else:
+                logger.warning(
+                    f"Error checking rights in group {group_id}: {e}",
+                    exc_info=True,
+                )
 
         if not skip_leave:
             try:
@@ -93,7 +100,9 @@ async def leave_no_rights_groups() -> None:
                 if success:
                     logger.info(f"Left no-rights group {group_id}")
                 else:
-                    logger.warning(f"Failed to leave group {group_id}")
+                    logger.warning(
+                        f"Failed to leave group {group_id} (unexpected cleanup failure)"
+                    )
             except Exception as cleanup_e:
                 logger.warning(f"Cleanup failed for {group_id}: {cleanup_e}")
 
