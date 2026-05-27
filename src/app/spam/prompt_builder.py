@@ -32,6 +32,7 @@ from .account_signals import build_account_signals_body
 logger = logging.getLogger(__name__)
 
 
+@logfire.no_auto_trace  # Called per optional field on every example; avoids hot-path span noise
 def _norm_opt(value: Any) -> Optional[str]:
     """Coerce value to stripped string, or None if empty."""
     if value is None:
