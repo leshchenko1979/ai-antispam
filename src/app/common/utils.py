@@ -1,3 +1,4 @@
+import asyncio
 import html
 import logging
 import os
@@ -23,6 +24,7 @@ from tenacity import (
     retry_if_exception,
     stop_after_attempt,
     wait_exponential,
+    wait_none,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,40 +62,35 @@ def _is_retryable_network_error(exc: BaseException) -> bool:
 _EXPONENTIAL_WAIT = wait_exponential(multiplier=0.5, min=0.5, max=10)
 
 
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Single wait per retry: honor Telegram flood control or exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, TelegramRetryAfter):
-        return float(min(exc.retry_after, 30))
-    return _EXPONENTIAL_WAIT(retry_state)
-
-
 async def _retry_before_sleep(retry_state: RetryCallState) -> None:
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     if isinstance(exc, TelegramRetryAfter):
-        delay = _retry_wait(retry_state)
+        delay = min(exc.retry_after, 30)
         logger.info(
             "Telegram flood control on attempt %s/4, sleeping %ss",
             retry_state.attempt_number,
             delay,
         )
-    elif retry_state.attempt_number <= 3:
-        logger.info(
-            "Retryable error on attempt %s/4: %s. Retrying...",
-            retry_state.attempt_number,
-            exc,
-        )
     else:
-        logger.warning(
-            "All retries failed with error: %s",
-            exc,
-            exc_info=True,
-        )
+        delay = _EXPONENTIAL_WAIT(retry_state)
+        if retry_state.attempt_number <= 3:
+            logger.info(
+                "Retryable error on attempt %s/4: %s. Retrying...",
+                retry_state.attempt_number,
+                exc,
+            )
+        else:
+            logger.warning(
+                "All retries failed with error: %s",
+                exc,
+                exc_info=True,
+            )
+    await asyncio.sleep(delay)
 
 
 retry_on_network_error = retry(
     stop=stop_after_attempt(4),
-    wait=_retry_wait,
+    wait=wait_none(),
     retry=retry_if_exception(_is_retryable_network_error),
     reraise=True,
     before_sleep=_retry_before_sleep,
