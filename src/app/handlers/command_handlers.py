@@ -292,12 +292,13 @@ async def handle_help_command(message: types.Message) -> str:
         ]
     )
 
-    await message.reply(
-        safe_text,
-        parse_mode="HTML",
-        reply_markup=keyboard,
-        disable_web_page_preview=True,
-    )
+    with contextlib.suppress(Exception):
+        await message.reply(
+            safe_text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
 
     return "command_help_sent"
 
@@ -375,8 +376,9 @@ async def handle_stats_command(message: types.Message) -> str:
         return "command_stats_sent"
 
     except Exception as e:
-        logger.error(f"Error handling stats command: {e}", exc_info=True)
-        await message.reply(t(lang, "stats.error"), parse_mode="HTML")
+        logger.info(f"Error handling stats command: {e}", exc_info=True)
+        with contextlib.suppress(Exception):
+            await message.reply(t(lang, "stats.error"), parse_mode="HTML")
         return "command_stats_error"
 
 

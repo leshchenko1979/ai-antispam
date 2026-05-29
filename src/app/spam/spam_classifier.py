@@ -73,7 +73,7 @@ async def is_spam(
 
     except Exception as e:
         with logfire.span("spam_classifier_gateway_failure"):
-            logger.warning(
+            logger.info(
                 f"Gateway spam classification failed: {e}, trying OpenRouter"
             )
 

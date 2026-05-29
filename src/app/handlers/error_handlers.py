@@ -3,6 +3,7 @@
 import contextlib
 import logging
 
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import ErrorEvent
 from pydantic_ai.exceptions import ModelAPIError
 
@@ -37,6 +38,10 @@ async def handle_dispatcher_error(event: ErrorEvent) -> None:
             exc,
             exc_info=True,
         )
+        return
+
+    if isinstance(exc, TelegramForbiddenError) and "bot was blocked" in str(exc).lower():
+        logger.info("Ignoring blocked user interaction: %s", exc)
         return
 
     logger.error("Unhandled exception in dispatcher: %s", exc, exc_info=True)
