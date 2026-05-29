@@ -9,6 +9,12 @@ from aiogram.exceptions import (
     TelegramServerError,
 )
 
+# Telegram's GroupAnonymousBot — appears in admin lists of groups
+# with anonymous admin enabled, but cannot receive bot-to-bot DMs.
+# Telegram reports is_bot=False for this system account, so the
+# standard not admin.user.is_bot filter doesn't catch it.
+GROUP_ANONYMOUS_BOT_ID = 1087968824
+
 _INACCESSIBLE_MESSAGE_MARKERS = (
     "chat not found",
     "group chat was deleted",

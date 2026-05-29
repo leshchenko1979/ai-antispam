@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup
 
 from ..database.group_operations import cleanup_group_data
 from .bot import bot
-from .telegram_errors import is_group_inaccessible_error
+from .telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_group_inaccessible_error
 from .utils import retry_on_network_error
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,14 @@ async def notify_admins_with_fallback_and_cleanup(
                         is_bot = True
                         logfire.warning(
                             f"Detected channel/bot account {admin_id} with negative ID"
+                        )
+
+                    # Additional check: GroupAnonymousBot (1087968824)
+                    # Telegram reports is_bot=False but it can't receive bot DMs
+                    if not is_bot and admin_id == GROUP_ANONYMOUS_BOT_ID:
+                        is_bot = True
+                        logger.info(
+                            f"Skipping GroupAnonymousBot {admin_id} — Telegram forbids bot-to-bot DMs"
                         )
 
                 if is_bot:

@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from ..common.trace_context import get_root_span
 
 from ..common.bot import bot
-from ..common.telegram_errors import is_permission_error
+from ..common.telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_permission_error
 from ..common.notifications import notify_admins_with_fallback_and_cleanup
 from ..common.utils import (
     format_chat_or_channel_display,
@@ -128,7 +128,7 @@ async def _handle_permission_update(
             await set_no_rights_detected_at(chat_id)
             # Получаем список админов группы
             admins = await bot.get_chat_administrators(chat_id)
-            admin_ids = [admin.user.id for admin in admins if not admin.user.is_bot]
+            admin_ids = [admin.user.id for admin in admins if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID]
             await _notify_admins_about_rights(
                 chat_id,
                 chat_title,
@@ -461,7 +461,8 @@ async def handle_member_service_message(message: types.Message) -> str:
                 try:
                     admins = await bot.get_chat_administrators(chat_id)
                     admin_ids = [
-                        admin.user.id for admin in admins if not admin.user.is_bot
+                        admin.user.id for admin in admins
+                        if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID
                     ]
                     lang = await _resolve_lang(admin_ids)
                     group_title = message.chat.title or ""
