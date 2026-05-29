@@ -3,7 +3,9 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Sequence
+from typing import Any, Dict, Sequence
+
+LogfireQueryClient: Any = None
 
 try:
     from logfire.query_client import LogfireQueryClient
@@ -11,7 +13,6 @@ try:
 except (ImportError, ModuleNotFoundError) as e:  # pragma: no cover
     # Logfire is an optional dependency in production. When it's not installed we
     # still want /stats to work and simply return zeroes instead of crashing.
-    LogfireQueryClient = None  # type: ignore[assignment]
     _logfire_import_error = e
 
 logger = logging.getLogger(__name__)
