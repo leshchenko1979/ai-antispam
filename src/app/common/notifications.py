@@ -131,12 +131,6 @@ async def notify_admins_with_fallback_and_cleanup(
             if isinstance(e, TelegramBadRequest):
                 # Check for specific parsing errors in the message
                 error_msg = str(e)
-                if "USER_BOT_TO_BOT_DISABLED" in error_msg:
-                    logger.info(
-                        f"Skipping bot admin {admin_id} — Telegram forbids bot-to-bot DMs"
-                    )
-                    bots_skipped.append(admin_id)
-                    continue
                 if (
                     "can't parse entities" in error_msg
                     or "Unsupported start tag" in error_msg
