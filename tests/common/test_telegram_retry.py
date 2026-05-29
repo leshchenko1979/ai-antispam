@@ -48,7 +48,7 @@ async def test_retry_on_network_error_honors_retry_after(monkeypatch):
     async def fake_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
-    monkeypatch.setattr("src.app.common.utils.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
 
     calls = 0
 
