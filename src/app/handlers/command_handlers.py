@@ -4,7 +4,7 @@ import logging
 from typing import cast
 
 from aiogram import F, types
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import Chat, InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -292,15 +292,12 @@ async def handle_help_command(message: types.Message) -> str:
         ]
     )
 
-    try:
-        await message.reply(
-            safe_text,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
-    except TelegramForbiddenError:
-        logger.info("User blocked the bot, skipping help reply")
+    await message.reply(
+        safe_text,
+        parse_mode="HTML",
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
 
     return "command_help_sent"
 
@@ -379,10 +376,7 @@ async def handle_stats_command(message: types.Message) -> str:
 
     except Exception as e:
         logger.info(f"Error handling stats command: {e}", exc_info=True)
-        try:
-            await message.reply(t(lang, "stats.error"), parse_mode="HTML")
-        except TelegramForbiddenError:
-            logger.info("User blocked the bot, skipping stats error reply")
+        await message.reply(t(lang, "stats.error"), parse_mode="HTML")
         return "command_stats_error"
 
 
