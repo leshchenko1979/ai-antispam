@@ -204,7 +204,7 @@ async def notify_admins_with_fallback_and_cleanup(
             )
         else:
             mention = "админ"
-            logger.warning(
+            logger.info(
                 f"No admin info available for group fallback in chat {group_id}, using generic mention"
             )
 
@@ -228,7 +228,7 @@ async def notify_admins_with_fallback_and_cleanup(
             result["group_notified"] = True
             return result
         except Exception as group_e:
-            logger.warning(
+            logger.info(
                 f"Failed to send group fallback notification to chat {group_id}: {group_e}",
                 exc_info=True,
             )
@@ -246,7 +246,7 @@ async def notify_admins_with_fallback_and_cleanup(
 
             # Log specific error if all notifications failed
             if not result["notified_private"] and not result["group_notified"]:
-                logger.error(
+                logger.info(
                     f"Failed to notify admins - all notification methods failed for chat {group_id}"
                     + (", cleanup initiated" if cleanup_if_group_fails else "")
                 )

@@ -452,7 +452,7 @@ async def handle_member_service_message(message: types.Message) -> str:
             return "service_message_deleted"
         except TelegramBadRequest as e:
             if is_permission_error(e):
-                logger.warning(
+                logger.info(
                     f"Cannot delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
                     exc_info=True,
                 )
@@ -490,7 +490,7 @@ async def handle_member_service_message(message: types.Message) -> str:
                         not notification_result["notified_private"]
                         and not notification_result["group_notified"]
                     ):
-                        logger.error(
+                        logger.info(
                             f"Failed to notify admins about missing rights - all notification methods failed for chat {chat_id}, cleanup initiated"
                         )
                         return "service_message_no_rights_cleanup"
@@ -502,7 +502,7 @@ async def handle_member_service_message(message: types.Message) -> str:
                     else:
                         return "service_message_no_rights"
                 except Exception as notify_exc:
-                    logger.warning(
+                    logger.info(
                         f"Failed to notify admins about missing rights: {notify_exc}"
                     )
                     return "service_message_no_rights"
