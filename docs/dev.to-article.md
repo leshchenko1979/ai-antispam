@@ -6,7 +6,7 @@ tags: telegram, spam, cybersecurity, ai
 cover_image: https://images.unsplash.com/vector-1761385079498-69fa4adce7dc?q=80&w=1800&auto=format&fit=crop&ixlib=rb-4.1.0
 ---
 
-Telegram spam has evolved far beyond the "Hi, I'm a hot girl, check my channel" messages most group admins are used to. In 2025-2026, spam operations have become sophisticated enough to bypass 80-90% of popular anti-spam bots.
+Telegram spam has evolved far beyond the "Hi, I'm a hot girl, check my channel" messages most group admins are used to. In 2025-2026, spam operations have become sophisticated enough to bypass the vast majority of popular anti-spam bots.
 
 Over the past year of running @ai_spam_blocker_bot — an AI-powered anti-spam bot that processes hundreds of thousands of messages across Telegram groups — we've observed five distinct levels of spam sophistication.
 
@@ -127,7 +127,7 @@ All three are effective against the first two levels but share a fundamental lim
 
 AI-based analysis — using transformer models that understand semantic meaning rather than exact text — is currently the only approach that can address Levels 3-5. The tradeoff is computational cost and the complexity of false positive tuning.
 
-The fundamental problem: most anti-spam bots were designed in 2022-2023, when Levels 3-5 were rare. In 2025-2026, neurocommenting is offered as a commercial service, and multi-stage attacks are increasingly common for any group with a significant audience.
+The fundamental problem: most mainstream anti-spam bots still rely on architectures from 2022-2023, when Levels 3-5 were rare. In 2025-2026, neurocommenting is offered as a commercial service, and multi-stage attacks are increasingly common for any group with a significant audience.
 
 ---
 
@@ -146,11 +146,11 @@ A transformer-based model (trained on a curated dataset covering all five spam l
 For every account that joins a group, the system builds a profile:
 - Account age (Telegram's `registration_date` — available via MTProto API for bots that have it enabled)
 - Response patterns (reply speed, thread joining behavior)
-- Cross-group activity (does this account appear in known spam groups?)
+- Anonymized cross-group signals (does this account appear in known spam groups? — no raw message data is shared between group owners)
 - Anomaly detection (sudden topic changes, unnatural language switching)
 
 ### 3. Probation-Based Moderation
-One of the most effective patterns we've implemented: new accounts get a **probation period** where their messages auto-delete if they match certain risk criteria. This alone catches 80% of Level 3-4 attacks because spam accounts almost never wait out a probation period.
+One of the most effective patterns we've implemented: new accounts get a **probation period** where their messages auto-delete if they match certain risk criteria. This alone catches the majority of Level 3-4 attacks because spam accounts almost never wait out a probation period.
 
 ### 4. Cross-User Correlation
 When multiple accounts with correlated join times, similar device fingerprints, and complementary posting patterns appear in the same group, the system flags the entire cluster for review. This is the only effective defense against Level 5 "spam theater" attacks.
