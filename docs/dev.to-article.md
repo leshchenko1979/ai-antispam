@@ -8,7 +8,7 @@ cover_image: https://images.unsplash.com/vector-1761385079498-69fa4adce7dc?q=80&
 
 Telegram spam has evolved far beyond the "Hi, I'm a hot girl, check my channel" messages most group admins are used to. In 2025-2026, spam operations have become sophisticated enough to bypass the vast majority of popular anti-spam bots.
 
-Over the past year of running @ai_spam_blocker_bot — an AI-powered anti-spam bot that processes hundreds of thousands of messages across Telegram groups — we've observed five distinct levels of spam sophistication.
+Over the past year of running @ai_spam_blocker_bot — an AI-powered anti-spam bot that moderates 100+ Telegram groups — we've observed five distinct levels of spam sophistication.
 
 Here's what they are and how to think about each one.
 
@@ -142,7 +142,6 @@ A transformer-based model (trained on a curated dataset covering all five spam l
 - Works on semantic meaning, not keywords
 - Detects paraphrased spam variants
 - Handles transliteration and homoglyphs natively
-- Achieves low false positive rates at high recall
 
 ### 2. Behavioral Profiling
 For every account that joins a group, the system builds a profile:
