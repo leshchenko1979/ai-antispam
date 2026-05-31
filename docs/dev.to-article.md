@@ -113,7 +113,7 @@ The entire operation ran for 8 hours, involved 15+ coordinated accounts, and loo
 - No single message contains spam content or links
 - Accounts have realistic profiles (Bio, profile photo, past messages in other groups)
 - Reply threading makes the conversation look organic
-- The spam payload (DM with scam link) happens outside the group
+- The spam payload (DM with scam link) happens outside the group — the anti-spam bot only checks public messages, so the DM itself is invisible to any group-level moderation
 
 **How to counter Level 5:** Cross-message correlation — identifying that multiple accounts are operating in a coordinated pattern. This requires temporal analysis (messages that follow a suspicious sequence), account graph analysis (do these accounts appear together in other groups?), and behavioral profiling (accounts that suddenly change their posting pattern).
 
