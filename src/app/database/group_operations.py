@@ -471,7 +471,7 @@ async def update_group_admins(
 
             # Handle both old format (just IDs) and new format (IDs with usernames)
             usernames = cast(
-                List[Optional[str]],
+                "List[Optional[str]]",
                 admin_usernames
                 if admin_usernames is not None
                 else [None] * len(admin_ids),

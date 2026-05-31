@@ -128,7 +128,11 @@ async def _handle_permission_update(
             await set_no_rights_detected_at(chat_id)
             # Получаем список админов группы
             admins = await bot.get_chat_administrators(chat_id)
-            admin_ids = [admin.user.id for admin in admins if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID]
+            admin_ids = [
+                admin.user.id
+                for admin in admins
+                if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID
+            ]
             await _notify_admins_about_rights(
                 chat_id,
                 chat_title,
@@ -461,8 +465,10 @@ async def handle_member_service_message(message: types.Message) -> str:
                 try:
                     admins = await bot.get_chat_administrators(chat_id)
                     admin_ids = [
-                        admin.user.id for admin in admins
-                        if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID
+                        admin.user.id
+                        for admin in admins
+                        if not admin.user.is_bot
+                        and admin.user.id != GROUP_ANONYMOUS_BOT_ID
                     ]
                     lang = await _resolve_lang(admin_ids)
                     group_title = message.chat.title or ""

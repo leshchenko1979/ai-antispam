@@ -94,9 +94,7 @@ async def handle_spam(
         )
         return "spam_auto_deleted"
 
-    return (
-        "spam_admins_notified" if notification_sent else "spam_notification_failed"
-    )
+    return "spam_admins_notified" if notification_sent else "spam_notification_failed"
 
 
 async def check_admin_delete_preferences(admin_ids: list[int]) -> bool:

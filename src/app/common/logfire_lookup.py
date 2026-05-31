@@ -9,6 +9,7 @@ LogfireQueryClient: Any = None
 
 try:
     from logfire.query_client import LogfireQueryClient
+
     _logfire_import_error: Exception | None = None
 except (ImportError, ModuleNotFoundError) as e:  # pragma: no cover
     # Logfire is an optional dependency in production. When it's not installed we

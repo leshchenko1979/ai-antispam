@@ -402,8 +402,14 @@ async def handle_mode_command(message: types.Message) -> str:
             return "command_mode_error"
 
         mode_messages = {
-            ModerationMode.NOTIFY: ("mode.notify_enabled", "command_mode_changed_to_notification"),
-            ModerationMode.DELETE: ("mode.delete_enabled", "command_mode_changed_to_deletion"),
+            ModerationMode.NOTIFY: (
+                "mode.notify_enabled",
+                "command_mode_changed_to_notification",
+            ),
+            ModerationMode.DELETE: (
+                "mode.delete_enabled",
+                "command_mode_changed_to_deletion",
+            ),
             ModerationMode.DELETE_SILENT: (
                 "mode.delete_silent_enabled",
                 "command_mode_changed_to_delete_silent",

@@ -85,9 +85,7 @@ async def handle_moderated_message(
     chat_id = message.chat.id
     was_approved_before = await is_member_in_group(chat_id, user_id)
 
-    group, exit_reason = await validate_group_and_check_early_exits(
-        chat_id, user_id
-    )
+    group, exit_reason = await validate_group_and_check_early_exits(chat_id, user_id)
     if exit_reason or group is None:
         if exit_reason == "message_trusted_member_skipped":
             try:
@@ -107,9 +105,7 @@ async def handle_moderated_message(
                     reply_to_text=reply_text,
                 )
             except Exception as e:
-                logger.warning(
-                    f"Failed to save message lookup for trusted user: {e}"
-                )
+                logger.warning(f"Failed to save message lookup for trusted user: {e}")
         return exit_reason
 
     logger.debug(
@@ -143,9 +139,7 @@ async def handle_moderated_message(
     target_span.set_attribute("moderation_source", source)
 
     try:
-        stories_ctx, account_ctx = _context_to_lookup_strings(
-            message_context_result
-        )
+        stories_ctx, account_ctx = _context_to_lookup_strings(message_context_result)
         reply_ctx = message_context_result.context.reply
         msg_text = message.text or message.caption or "[MEDIA_MESSAGE]"
         await save_message_lookup_entry(

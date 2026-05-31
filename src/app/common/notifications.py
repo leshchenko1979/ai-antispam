@@ -112,7 +112,7 @@ async def notify_admins_with_fallback_and_cleanup(
 
             # Resolve message (support per-admin customization)
             if callable(private_message):
-                msg_text = cast(Callable[[int], str], private_message)(admin_id)
+                msg_text = cast("Callable[[int], str]", private_message)(admin_id)
             else:
                 msg_text = private_message
 
