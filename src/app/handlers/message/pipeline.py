@@ -1,7 +1,7 @@
 """Message moderation pipeline: validation, spam analysis, result processing."""
 
 import logging
-from typing import FrozenSet
+from typing import Any, FrozenSet
 
 from aiogram import types
 
@@ -70,6 +70,67 @@ async def _maybe_increment_probation_events(
     await increment_moderation_events(chat_id, user_id)
 
 
+async def _handle_trusted_member_exit(message: types.Message, user_id: int) -> None:
+    """Save message lookup entry for a trusted member before early-exiting."""
+    try:
+        msg_text = message.text or message.caption or "[MEDIA_MESSAGE]"
+        reply_text = None
+        if message.reply_to_message:
+            reply_text = (
+                message.reply_to_message.text
+                or message.reply_to_message.caption
+                or "[MEDIA_MESSAGE]"
+            )
+        await save_message_lookup_entry(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            effective_user_id=user_id,
+            message_text=msg_text,
+            reply_to_text=reply_text,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save message lookup for trusted user: {e}")
+
+
+def _set_classification_span_attributes(
+    target_span: Any,
+    is_spam: bool,
+    confidence: int,
+    reason: str,
+    message_context_result: "MessageContextResult",
+    source: str,
+) -> None:
+    """Set Logfire span attributes from classification results."""
+    target_span.set_attribute("llm_is_spam", is_spam)
+    target_span.set_attribute("llm_confidence", confidence)
+    target_span.set_attribute("llm_reason", reason)
+    target_span.set_attribute("context", str(message_context_result.context))
+    target_span.set_attribute("moderation_source", source)
+
+
+async def _save_classification_lookup(
+    message: types.Message,
+    message_context_result: "MessageContextResult",
+    user_id: int,
+) -> None:
+    """Save message lookup entry with context after spam classification."""
+    try:
+        stories_ctx, account_ctx = _context_to_lookup_strings(message_context_result)
+        reply_ctx = message_context_result.context.reply
+        msg_text = message.text or message.caption or "[MEDIA_MESSAGE]"
+        await save_message_lookup_entry(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            effective_user_id=user_id,
+            message_text=msg_text,
+            reply_to_text=reply_ctx,
+            stories_context=stories_ctx,
+            account_signals_context=account_ctx,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save message lookup after classification: {e}")
+
+
 async def handle_moderated_message(
     message: types.Message, *, source: str = "new"
 ) -> str:
@@ -88,24 +149,7 @@ async def handle_moderated_message(
     group, exit_reason = await validate_group_and_check_early_exits(chat_id, user_id)
     if exit_reason or group is None:
         if exit_reason == "message_trusted_member_skipped":
-            try:
-                msg_text = message.text or message.caption or "[MEDIA_MESSAGE]"
-                reply_text = None
-                if message.reply_to_message:
-                    reply_text = (
-                        message.reply_to_message.text
-                        or message.reply_to_message.caption
-                        or "[MEDIA_MESSAGE]"
-                    )
-                await save_message_lookup_entry(
-                    chat_id=chat_id,
-                    message_id=message.message_id,
-                    effective_user_id=user_id,
-                    message_text=msg_text,
-                    reply_to_text=reply_text,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to save message lookup for trusted user: {e}")
+            await _handle_trusted_member_exit(message, user_id)
         return exit_reason
 
     logger.debug(
@@ -132,27 +176,11 @@ async def handle_moderated_message(
         return "message_spam_check_failed"
 
     target_span = get_root_span()
-    target_span.set_attribute("llm_is_spam", is_spam)
-    target_span.set_attribute("llm_confidence", confidence)
-    target_span.set_attribute("llm_reason", reason)
-    target_span.set_attribute("context", str(message_context_result.context))
-    target_span.set_attribute("moderation_source", source)
+    _set_classification_span_attributes(
+        target_span, is_spam, confidence, reason, message_context_result, source,
+    )
 
-    try:
-        stories_ctx, account_ctx = _context_to_lookup_strings(message_context_result)
-        reply_ctx = message_context_result.context.reply
-        msg_text = message.text or message.caption or "[MEDIA_MESSAGE]"
-        await save_message_lookup_entry(
-            chat_id=message.chat.id,
-            message_id=message.message_id,
-            effective_user_id=user_id,
-            message_text=msg_text,
-            reply_to_text=reply_ctx,
-            stories_context=stories_ctx,
-            account_signals_context=account_ctx,
-        )
-    except Exception as e:
-        logger.warning(f"Failed to save message lookup after classification: {e}")
+    await _save_classification_lookup(message, message_context_result, user_id)
 
     result, member_inserted = await process_spam_or_approve(
         message,
