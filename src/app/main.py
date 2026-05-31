@@ -229,11 +229,7 @@ async def handle_temporary_error(
 ) -> web.Response:
     """Handle ModelAPIError from pydantic-ai after retries exhausted."""
     # Check if it's an HTTP error with status_code
-    if isinstance(e, ModelHTTPError):
-        status_code = e.status_code
-    else:
-        status_code = None
-
+    status_code = e.status_code if isinstance(e, ModelHTTPError) else None
     is_rate_limit = status_code == 429
     error_type = "rate_limit" if is_rate_limit else "model_api_error"
     span.tags = [error_type]

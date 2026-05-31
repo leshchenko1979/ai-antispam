@@ -33,8 +33,7 @@ def build_account_signals_body(context: "SpamClassificationContext") -> Optional
     Lines under ACCOUNT SIGNALS (no header). Used for DB/cache and LLM section body.
     """
     lines: list[str] = []
-    pl = _profile_photo_line(context.profile_photo_age)
-    if pl:
+    if pl := _profile_photo_line(context.profile_photo_age):
         lines.append(pl)
     if not context.is_channel_sender and context.is_premium is not None:
         lines.append(f"is_premium={str(context.is_premium).lower()}")

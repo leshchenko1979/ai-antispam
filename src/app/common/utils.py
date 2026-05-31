@@ -50,11 +50,7 @@ _NON_RETRYABLE_TELEGRAM_API = (
 def _is_retryable_network_error(exc: BaseException) -> bool:
     if isinstance(exc, _NON_RETRYABLE_TELEGRAM_API):
         return False
-    if isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS):
-        return True
-    if isinstance(exc, TelegramAPIError):
-        return False
-    return False
+    return bool(isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS))
 
 
 _EXPONENTIAL_WAIT = wait_exponential(multiplier=0.5, min=0.5, max=10)
@@ -311,8 +307,8 @@ def clean_alert_text(text: str | None) -> str | None:
                     line
                     for line in cleaned.splitlines()
                     if line.strip()
-                    and not any(
-                        marker in line
+                    and all(
+                        marker not in line
                         for marker in [
                             "⚠️ ТРЕВОГА!",
                             "⚠️ ВТОРЖЕНИЕ!",

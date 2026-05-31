@@ -1,5 +1,6 @@
 """Logfire query utilities. get_weekly_stats for admin dashboard; message lookup is PostgreSQL."""
 
+
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,7 @@ try:
     from logfire.query_client import LogfireQueryClient
 
     _logfire_import_error: Exception | None = None
-except (ImportError, ModuleNotFoundError) as e:  # pragma: no cover
+except ImportError as e:
     # Logfire is an optional dependency in production. When it's not installed we
     # still want /stats to work and simply return zeroes instead of crashing.
     _logfire_import_error = e

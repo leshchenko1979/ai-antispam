@@ -205,9 +205,7 @@ class TelegramLogHandler(logging.Handler):
             return False
         # If the last send is older than the dedupe window, allow and let callers
         # overwrite the timestamp.
-        if now - last_sent_at >= self._dedupe_window:
-            return False
-        return True
+        return now - last_sent_at < self._dedupe_window
 
     def _cleanup_dedupe_cache(self, now: float) -> None:
         # Keep the dict bounded and remove expired entries in place.

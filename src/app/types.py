@@ -406,8 +406,7 @@ class MessageNotificationContext:
             violator_username = None
 
         forward_source = ""
-        forward_chat = getattr(message, "forward_from_chat", None)
-        if forward_chat:
+        if forward_chat := getattr(message, "forward_from_chat", None):
             forward_title = getattr(forward_chat, "title", None) or "Канал"
             forward_username = getattr(forward_chat, "username", None)
             forward_source = (

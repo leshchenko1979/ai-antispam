@@ -325,9 +325,7 @@ async def get_moderation_event_count(group_id: int, member_id: int) -> Optional[
 async def is_trusted_member(group_id: int, member_id: int) -> bool:
     """True if member is approved and has completed probation."""
     count = await get_moderation_event_count(group_id, member_id)
-    if count is None:
-        return False
-    return count >= get_probation_min_events()
+    return False if count is None else count >= get_probation_min_events()
 
 
 async def increment_moderation_events(group_id: int, member_id: int) -> None:
