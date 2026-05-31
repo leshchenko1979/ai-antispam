@@ -173,6 +173,50 @@ def _build_html_correction_prompt(original_message: str, broken_response: str) -
     )
 
 
+async def _try_provider_with_retries(
+    chat_agent,
+    *,
+    user_message_text: str,
+    system_prompt: str,
+    model_settings: ModelSettings,
+    admin_message: str,
+    admin_id: int,
+    message: types.Message,
+    max_retries: int = 3,
+) -> str:
+    """Run a single language model provider with HTML correction retries.
+
+    Tries *max_retries* times to get a reply from *chat_agent*.  On each
+    attempt the response is saved and sent to the user; if sending fails
+    with an HTML formatting error the next attempt receives the HTML
+    correction prompt (built from *admin_message* and the broken response).
+
+    Returns ``"private_message_replied"`` on success.
+    Raises the underlying exception when all retries are exhausted.
+    """
+    current_text = user_message_text
+    for retry_count in range(max_retries):
+        result = await chat_agent.run(
+            current_text,
+            instructions=system_prompt,
+            model_settings=model_settings,
+        )
+        response = result.output
+
+        await save_message(admin_id, "assistant", response)
+
+        try:
+            sanitized_response = sanitize_llm_html(response)
+            await message.reply(sanitized_response, parse_mode="HTML")
+            return "private_message_replied"
+        except TelegramBadRequest as send_error:
+            if not _is_html_error(send_error) or retry_count >= max_retries - 1:
+                raise
+            current_text = _build_html_correction_prompt(admin_message, response)
+
+    raise RuntimeError("Unreachable: retry loop exhausted without return or raise")
+
+
 # ===================================================================
 
 
@@ -212,36 +256,20 @@ async def handle_private_message(message: types.Message) -> str:
 
     llm_timeout = get_llm_route_timeout()
     model_settings = ModelSettings(timeout=llm_timeout)
-    max_retries = 3
     last_error = None
 
     # Try gateway first
     try:
-        for retry_count in range(max_retries):
-            chat_agent = get_chat_agent()
-            result = await chat_agent.run(
-                user_message_text,
-                instructions=system_prompt,
-                model_settings=model_settings,
-            )
-            response = result.output
-
-            await save_message(admin_id, "assistant", response)
-
-            try:
-                sanitized_response = sanitize_llm_html(response)
-                await message.reply(sanitized_response, parse_mode="HTML")
-                return "private_message_replied"
-
-            except TelegramBadRequest as send_error:
-                if not _is_html_error(send_error) or retry_count >= max_retries - 1:
-                    raise
-
-                # Retry with HTML correction on next gateway agent
-                user_message_text = _build_html_correction_prompt(
-                    admin_message, response
-                )
-
+        chat_agent = get_chat_agent()
+        return await _try_provider_with_retries(
+            chat_agent,
+            user_message_text=user_message_text,
+            system_prompt=system_prompt,
+            model_settings=model_settings,
+            admin_message=admin_message,
+            admin_id=admin_id,
+            message=message,
+        )
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -259,36 +287,22 @@ async def handle_private_message(message: types.Message) -> str:
             else f"openrouter-{i}"
         )
 
-        for retry_count in range(max_retries):
-            try:
-                result = await chat_agent.run(
-                    user_message_text,
-                    instructions=system_prompt,
-                    model_settings=model_settings,
-                )
-                response = result.output
-
-                await save_message(admin_id, "assistant", response)
-
-                try:
-                    sanitized_response = sanitize_llm_html(response)
-                    await message.reply(sanitized_response, parse_mode="HTML")
-                    return "private_message_replied"
-
-                except TelegramBadRequest as send_error:
-                    if not _is_html_error(send_error) or retry_count >= max_retries - 1:
-                        raise
-
-                    user_message_text = _build_html_correction_prompt(
-                        admin_message, response
-                    )
-                    continue
-
-            except Exception as e:
-                last_error = e
-                logger.warning(f"{provider_label} chat agent failed: {e}")
-                _next_openrouter_chat_agent()
-                break
+        try:
+            return await _try_provider_with_retries(
+                chat_agent,
+                user_message_text=user_message_text,
+                system_prompt=system_prompt,
+                model_settings=model_settings,
+                admin_message=admin_message,
+                admin_id=admin_id,
+                message=message,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            last_error = e
+            logger.warning(f"{provider_label} chat agent failed: {e}")
+            _next_openrouter_chat_agent()
 
     raise RuntimeError(f"All chat providers failed. Last error: {last_error}")
 
