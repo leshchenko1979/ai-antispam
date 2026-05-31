@@ -130,7 +130,7 @@ async def fetch_linked_chat_id(chat_id: int) -> Optional[int]:
         chat_info = await bot.get_chat(chat_id)
         return getattr(chat_info, "linked_chat_id", None)
     except Exception as e:
-        logger.info(f"Failed to fetch linked_chat_id via API: {e}")
+        logger.warning(f"Failed to fetch linked_chat_id via API: {e}")
         return None
 
 
@@ -188,7 +188,7 @@ async def get_and_check_group(chat_id: int) -> Tuple[Optional[Group], str]:
     group = await get_group(chat_id)
 
     if not group:
-        logger.info(f"Group not found for chat {chat_id}")
+        logger.error(f"Group not found for chat {chat_id}")
         return None, "error_message_group_not_found"
 
     if not group.moderation_enabled:

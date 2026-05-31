@@ -288,7 +288,7 @@ Confidence calibration policy: use medium confidence for ambiguous cases with mi
             )
             self.prompt_parts.append(examples_json)
         except Exception as e:
-            logger.info(f"Failed to load spam examples for prompt: {e}")
+            logger.warning(f"Failed to load spam examples for prompt: {e}")
 
         return self
 

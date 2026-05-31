@@ -45,7 +45,7 @@ def load_locales() -> None:
                 with open(path, "r", encoding="utf-8") as f:
                     _LOCALES[lang] = yaml.safe_load(f) or {}
             except Exception as e:
-                logger.info(f"Failed to load locale {lang}: {e}")
+                logger.warning(f"Failed to load locale {lang}: {e}")
                 _LOCALES[lang] = {}
         else:
             _LOCALES[lang] = {}
@@ -95,11 +95,11 @@ def t(lang: str, key: str, **kwargs: Any) -> str:
             try:
                 return val.format(**kwargs) if kwargs else val
             except KeyError:
-                logger.info(
+                logger.warning(
                     f"Missing format placeholder in {key} for lang {lang_code}"
                 )
                 return val
-    logger.info(f"Missing translation key: {key}")
+    logger.warning(f"Missing translation key: {key}")
     return key
 
 

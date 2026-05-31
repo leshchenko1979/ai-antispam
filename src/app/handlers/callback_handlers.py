@@ -216,7 +216,7 @@ async def handle_spam_ignore_callback(callback: CallbackQuery) -> str:
                     )
                 )
         else:
-            logger.info(
+            logger.warning(
                 "mark_as_not_spam: pending record not found, skipping unban/add",
                 extra={"pending_id": pending_id},
             )
@@ -231,7 +231,7 @@ async def handle_spam_ignore_callback(callback: CallbackQuery) -> str:
         return "callback_marked_as_not_spam"
 
     except Exception as e:
-        logger.warning(f"Error in spam ignore callback: {e}", exc_info=True)
+        logger.error(f"Error in spam ignore callback: {e}", exc_info=True)
         with contextlib.suppress(Exception):
             admin = (
                 await get_admin(callback.from_user.id) if callback.from_user else None
@@ -264,7 +264,7 @@ async def handle_spam_confirm_callback(callback: CallbackQuery) -> str:
         message_id = int(message_id_str)
 
         if not callback.message:
-            logger.info("No notification message in callback")
+            logger.warning("No notification message in callback")
             await callback.answer(t(lang, "callback.invalid_callback"), show_alert=True)
             return "callback_invalid_message"
 
@@ -281,7 +281,7 @@ async def handle_spam_confirm_callback(callback: CallbackQuery) -> str:
                     f"Message to delete not found (likely already deleted): {chat_id}:{message_id}"
                 )
             else:
-                logger.info(
+                logger.warning(
                     f"Failed to delete original spam message: {e}", exc_info=True
                 )
                 await callback.answer(
@@ -289,7 +289,7 @@ async def handle_spam_confirm_callback(callback: CallbackQuery) -> str:
                 )
                 return "callback_error_deleting_original"
         except Exception as e:
-            logger.info(
+            logger.warning(
                 f"Failed to delete original spam message: {e}", exc_info=True
             )
             await callback.answer(t(lang, "callback.delete_failed"), show_alert=True)
@@ -323,12 +323,12 @@ async def handle_spam_confirm_callback(callback: CallbackQuery) -> str:
                 )
             except TelegramBadRequest as e:
                 if "message to edit not found" not in e.message:
-                    logger.info(f"Failed to edit notification message: {e}")
+                    logger.warning(f"Failed to edit notification message: {e}")
 
         return "callback_spam_message_deleted"
 
     except Exception as e:
-        logger.warning(f"Error in spam confirm callback: {e}", exc_info=True)
+        logger.error(f"Error in spam confirm callback: {e}", exc_info=True)
         with contextlib.suppress(Exception):
             await callback.answer(t(lang, "callback.error_generic"), show_alert=True)
         return "callback_error_deleting_spam"

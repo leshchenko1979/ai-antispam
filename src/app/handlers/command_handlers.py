@@ -133,7 +133,7 @@ async def _resolve_offer_display_chat(
     try:
         return await bot.get_chat(channel_id)
     except TelegramBadRequest as e:
-        logger.info(
+        logger.warning(
             "Linked channel not accessible for offer display: %s",
             e,
             extra={"user_id": user_id, "channel_id": channel_id},
@@ -162,7 +162,7 @@ async def _collect_linked_channel_for_offer(
             user_context = await collect_user_context(user_id, username=username)
             linked = user_context.linked_channel or linked
     except Exception as e:
-        logger.info(
+        logger.warning(
             "Failed to collect context via Bot API for /start offer: %s",
             e,
             exc_info=True,
@@ -414,7 +414,7 @@ async def handle_mode_command(message: types.Message) -> str:
         return return_value
 
     except Exception as e:
-        logger.warning(f"Error handling mode command: {e}", exc_info=True)
+        logger.error(f"Error handling mode command: {e}", exc_info=True)
         await message.reply(t(lang, "mode.error"), parse_mode="HTML")
         return "command_mode_error"
 

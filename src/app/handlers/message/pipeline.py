@@ -107,7 +107,7 @@ async def handle_moderated_message(
                     reply_to_text=reply_text,
                 )
             except Exception as e:
-                logger.info(
+                logger.warning(
                     f"Failed to save message lookup for trusted user: {e}"
                 )
         return exit_reason
@@ -132,7 +132,7 @@ async def handle_moderated_message(
                 context=message_context_result.context,
             )
     except Exception as e:
-        logger.info(f"Failed to get spam classification: {e}")
+        logger.warning(f"Failed to get spam classification: {e}")
         return "message_spam_check_failed"
 
     target_span = get_root_span()
@@ -158,7 +158,7 @@ async def handle_moderated_message(
             account_signals_context=account_ctx,
         )
     except Exception as e:
-        logger.info(f"Failed to save message lookup after classification: {e}")
+        logger.warning(f"Failed to save message lookup after classification: {e}")
 
     result, member_inserted = await process_spam_or_approve(
         message,

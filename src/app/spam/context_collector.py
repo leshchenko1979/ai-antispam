@@ -235,5 +235,5 @@ async def collect_sender_context(message) -> SpamClassificationContext:
         return await _collect_channel_sender_context(message)
     if message.from_user:
         return await _collect_user_sender_context(message)
-    logger.info("Message has no sender_chat or from_user")
+    logger.warning("Message has no sender_chat or from_user")
     return SpamClassificationContext(name="Unknown")
