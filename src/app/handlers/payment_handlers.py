@@ -116,7 +116,7 @@ async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery)
 async def process_successful_payment(message: types.Message) -> str:
     """Обработчик успешного платежа"""
     if not message.from_user or not message.successful_payment:
-        logger.warning(
+        logger.info(
             "Received successful payment message with missing user or payment data"
         )
         return "payment_processing_skipped"

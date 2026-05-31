@@ -60,7 +60,7 @@ async def handle_spam(
 ) -> str:
     """Handle detected spam: notify admins, optionally delete and ban."""
     if not message.from_user:
-        logger.warning("Message without user info, skipping spam handling")
+        logger.info("Message without user info, skipping spam handling")
         return "spam_no_user_info"
 
     all_admins_delete = await check_admin_delete_preferences(admin_ids)
@@ -86,7 +86,7 @@ async def handle_spam(
     if effective_all_admins_delete:
         effective_user_id = determine_effective_user_id(message)
         if effective_user_id is None:
-            logger.warning("Message without effective user info, skipping ban")
+            logger.info("Message without effective user info, skipping ban")
             return "spam_no_user_info"
         await handle_spam_message_deletion(message, admin_ids)
         await ban_user_for_spam(
@@ -202,7 +202,7 @@ async def handle_permission_error(
     if not is_permission_error(error):
         return False
 
-    logger.warning(
+    logger.info(
         f"Cannot {action_description} in chat {chat_id}: {error}",
         exc_info=True,
     )
@@ -229,7 +229,7 @@ async def handle_permission_error(
                 parse_mode="HTML",
             )
         except Exception as notify_exc:
-            logger.warning(
+            logger.info(
                 f"Failed to notify admins about missing rights for {action_description}: {notify_exc}"
             )
     return True
@@ -453,7 +453,7 @@ async def handle_spam_message_deletion(
             getattr(message.chat, "username", None),
             lang=lang,
         ):
-            logger.warning(
+            logger.info(
                 f"Could not delete spam message {message.message_id} in chat {message.chat.id}: {e}",
                 exc_info=True,
             )
@@ -497,17 +497,17 @@ async def ban_user_for_spam(
             "ban user",
             lang=lang,
         ):
-            logger.warning(
+            logger.info(
                 f"Failed to ban user {user_id} in chat {chat_id}: {e}", exc_info=True
             )
     except Exception as e:
-        logger.warning(
+        logger.info(
             f"Failed to ban user {user_id} in chat {chat_id}: {e}", exc_info=True
         )
     try:
         await remove_member_from_group(user_id, chat_id)
     except Exception as e:
-        logger.warning(
+        logger.info(
             f"Failed to remove user {user_id} from approved_members: {e}", exc_info=True
         )
 
@@ -586,14 +586,14 @@ async def send_mcp_message_to_user(
         logger.info("Sent MCP spam notification", extra=log_extra)
         return True
     except McpHttpError as e:
-        logger.warning(
+        logger.info(
             "Failed to send MCP message",
             extra={**log_extra, "error": str(e)},
             exc_info=True,
         )
         return False
     except Exception as e:
-        logger.error(
+        logger.warning(
             "Unexpected error sending MCP message",
             extra={**log_extra, "error": str(e)},
             exc_info=True,

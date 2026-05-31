@@ -61,7 +61,7 @@ async def handle_update(request: web.Request) -> web.Response:
 
     # Validate that this is a proper Telegram update
     if not isinstance(json, dict) or "update_id" not in json:
-        logger.warning(f"Received invalid update format: {json}")
+        logger.info(f"Received invalid update format: {json}")
         return web.json_response(
             {"error": "Invalid update format", "required_field": "update_id"},
             status=400,
@@ -179,7 +179,7 @@ async def _on_startup_log_server_started(app: web.Application) -> None:
 
 async def _shutdown(app: web.Application) -> None:
     """Gracefully shutdown all resources."""
-    logger.warning("Starting graceful shutdown...")
+    logger.info("Starting graceful shutdown...")
 
     global _scheduled_jobs_task
     if _scheduled_jobs_task and not _scheduled_jobs_task.done():
@@ -193,7 +193,7 @@ async def _shutdown(app: web.Application) -> None:
         try:
             await telegram_handler.stop(timeout=5.0)
         except Exception as e:
-            logger.warning(f"Error stopping TelegramLogHandler: {e}", exc_info=True)
+            logger.info(f"Error stopping TelegramLogHandler: {e}", exc_info=True)
 
     async with asyncio.TaskGroup() as tg:
         tg.create_task(bot.session.close())

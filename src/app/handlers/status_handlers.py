@@ -164,7 +164,7 @@ async def _handle_permission_update(
 
                 await send_setup_confirmation()
             except Exception as e:
-                logger.warning(
+                logger.info(
                     f"Failed to send setup confirmation to admin {admin_id}: {e}",
                     exc_info=True,
                 )
@@ -231,7 +231,7 @@ async def _handle_bot_added(
 
             await send_setup_confirmation()
         except Exception as e:
-            logger.warning(
+            logger.info(
                 f"Failed to send setup confirmation to admin {admin_id}: {e}",
                 exc_info=True,
             )
@@ -276,7 +276,7 @@ async def _handle_bot_removed(
                 assume_human_admins=True,
             )
         else:
-            logger.warning(
+            logger.info(
                 f"No human admins found for group {chat_id} to notify about bot removal"
             )
 
@@ -402,7 +402,7 @@ async def _send_promo_message(
 
         await send_promo_message()
     except Exception as e:
-        logger.warning(
+        logger.info(
             f"Failed to send promo message to chat {chat_id} ('{chat_title}'): {e}"
         )
 
@@ -452,7 +452,7 @@ async def handle_member_service_message(message: types.Message) -> str:
             return "service_message_deleted"
         except TelegramBadRequest as e:
             if is_permission_error(e):
-                logger.warning(
+                logger.info(
                     f"Cannot delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
                     exc_info=True,
                 )
@@ -490,7 +490,7 @@ async def handle_member_service_message(message: types.Message) -> str:
                         not notification_result["notified_private"]
                         and not notification_result["group_notified"]
                     ):
-                        logger.error(
+                        logger.info(
                             f"Failed to notify admins about missing rights - all notification methods failed for chat {chat_id}, cleanup initiated"
                         )
                         return "service_message_no_rights_cleanup"
@@ -502,7 +502,7 @@ async def handle_member_service_message(message: types.Message) -> str:
                     else:
                         return "service_message_no_rights"
                 except Exception as notify_exc:
-                    logger.warning(
+                    logger.info(
                         f"Failed to notify admins about missing rights: {notify_exc}"
                     )
                     return "service_message_no_rights"
@@ -544,7 +544,7 @@ async def _deactivate_admin_after_block(admin_id: int) -> None:
         else:
             logger.info("Admin %s was already inactive when blocking the bot", admin_id)
     except Exception as exc:
-        logger.warning(
+        logger.info(
             "Failed to deactivate admin %s after blocking the bot: %s",
             admin_id,
             exc,

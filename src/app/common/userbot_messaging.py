@@ -49,7 +49,7 @@ async def send_userbot_dm(
         logger.info("Sent userbot DM", extra=log_extra)
         return True
     except McpHttpError as e:
-        logger.warning(
+        logger.info(
             "Failed to send userbot DM",
             extra={**log_extra, "error": str(e)},
             exc_info=True,

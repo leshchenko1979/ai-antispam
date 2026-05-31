@@ -170,7 +170,7 @@ async def leave_sole_payer_groups(admin_id: int) -> None:
                     f"Left sole-payer group {group_id} for dry admin {admin_id}"
                 )
             else:
-                logger.warning(f"Failed to leave group {group_id} for admin {admin_id}")
+                logger.info(f"Failed to leave group {group_id} for admin {admin_id}")
 
     if left_groups:
         groups_list = "\n• ".join(left_groups)

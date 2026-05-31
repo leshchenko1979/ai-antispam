@@ -278,7 +278,7 @@ async def collect_user_context(
             actual_user_id=actual_user_id, username=username
         )
         if identifier is None:
-            logger.error(
+            logger.info(
                 "No username and invalid user_id for user_id-based collection",
                 extra={"user_id": actual_user_id, "username": username},
             )

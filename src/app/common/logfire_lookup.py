@@ -118,5 +118,5 @@ async def get_weekly_stats(chat_ids: Sequence[int]) -> Dict[int, Dict[str, int]]
         return stats
 
     except Exception as e:
-        logger.warning(f"Failed to get weekly stats from Logfire: {e}", exc_info=True)
+        logger.info(f"Failed to get weekly stats from Logfire: {e}", exc_info=True)
         return stats

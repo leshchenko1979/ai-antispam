@@ -59,7 +59,7 @@ async def get_discussion_username(chat: types.Chat, bot: Bot) -> str | None:
             discussion_chat = await bot.get_chat(int(linked_chat_id))
             return getattr(discussion_chat, "username", None)
         except Exception as e:
-            logger.warning(
+            logger.info(
                 f"Failed to get linked discussion group {linked_chat_id}: {e}"
             )
     return None
@@ -147,7 +147,7 @@ async def notify_channel_admins(
     try:
         admins = await bot.get_chat_administrators(chat.id)
     except Exception as e:
-        logger.warning(
+        logger.info(
             f"Failed to get channel admins for {chat.id}: {e}", exc_info=True
         )
         return notified_admins
@@ -166,7 +166,7 @@ async def notify_channel_admins(
             await send_instruction()
             notified_admins.append(admin_id)
         except Exception as e:
-            logger.warning(
+            logger.info(
                 f"Failed to send instruction to admin {admin_id}: {e}", exc_info=True
             )
 
@@ -227,7 +227,7 @@ async def notify_channel_admins_and_leave(
             f"Bot left channel {chat.id} after notifying {len(notified_admins)} admins."
         )
     except TelegramForbiddenError as e:
-        logger.warning(
+        logger.info(
             f"Bot API failed for channel {chat.id} (e.g. bot not a member): {e}"
         )
         # Fallback: userbot DM to adding user if they have username
@@ -254,7 +254,7 @@ async def notify_channel_admins_and_leave(
                     extra={"username": adding_username, "channel_id": chat.id},
                 )
             else:
-                logger.warning(
+                logger.info(
                     "Userbot fallback DM failed for adding user",
                     extra={"username": adding_username, "channel_id": chat.id},
                 )

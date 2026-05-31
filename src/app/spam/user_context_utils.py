@@ -635,7 +635,7 @@ async def _establish_context_for_regular_group_message(
         )
 
         if not join_success:
-            logger.warning(
+            logger.info(
                 "User bot subscription failed after pre-check failure, skipping context collection",
                 extra={"context": context},
             )

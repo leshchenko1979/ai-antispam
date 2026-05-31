@@ -119,7 +119,7 @@ class TelegramLogHandler(logging.Handler):
                 await self._send(text)
                 drained_count += 1
             except Exception as e:
-                drain_logger.warning(
+                drain_logger.info(
                     f"TelegramLogHandler _process_queue drain stopped after {drained_count} "
                     f"messages due to error: {e}",
                     exc_info=e,
@@ -143,7 +143,7 @@ class TelegramLogHandler(logging.Handler):
                 await asyncio.wait_for(task, timeout=timeout)
             except asyncio.TimeoutError:
                 logger = logging.getLogger(__name__)
-                logger.warning(
+                logger.info(
                     f"TelegramLogHandler stop() timed out after {timeout}s, task may not have completed"
                 )
             except asyncio.CancelledError:
@@ -163,7 +163,7 @@ class TelegramLogHandler(logging.Handler):
                 await self._send(text)
                 drained_count += 1
             except Exception as e:
-                drain_logger.warning(
+                drain_logger.info(
                     f"TelegramLogHandler drain stopped early after {drained_count} messages "
                     f"due to error: {e}",
                     exc_info=e,

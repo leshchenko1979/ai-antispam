@@ -214,7 +214,7 @@ async def handle_private_message(message: types.Message) -> str:
         raise  # Don't swallow cancellation — let it propagate
     except Exception as e:
         last_error = e
-        logger.warning(f"Gateway chat failed: {e}")
+        logger.info(f"Gateway chat failed: {e}")
 
     # OpenRouter pool with rotation
     num_openrouter = len(_get_openrouter_chat_agents())
@@ -269,7 +269,7 @@ async def handle_private_message(message: types.Message) -> str:
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"{provider_label} chat agent failed: {e}")
+                logger.info(f"{provider_label} chat agent failed: {e}")
                 _next_openrouter_chat_agent()
                 break  # Try next OpenRouter agent
 
@@ -352,7 +352,7 @@ def _append_spam_cleanup_tasks(
     if user_id := info.get("user_id"):
         tasks.append(remove_member_from_group(member_id=user_id))
     else:
-        logger.warning("User ID not found in info, skipping removal from group")
+        logger.info("User ID not found in info, skipping removal from group")
 
     group_chat_id = info.get("group_chat_id")
     group_message_id = info.get("group_message_id")
@@ -369,7 +369,7 @@ def _append_spam_cleanup_tasks(
         )
         return
 
-    logger.warning(
+    logger.info(
         "Group chat ID or message ID not found in info, skipping message deletion",
         extra={
             "message_deletion": "skipped",
@@ -438,13 +438,13 @@ async def process_spam_example_callback(callback: types.CallbackQuery) -> str:
         return "spam_example_processed"
 
     except OriginalMessageExtractionError as e:
-        logger.error(f"Failed to extract original message info: {e}")
+        logger.info(f"Failed to extract original message info: {e}")
         admin = await get_admin(admin_id)
         lang = _resolve_admin_lang(admin)
         await callback.answer(t(lang, "private.error_forward_info"), show_alert=True)
         return "spam_example_extraction_error"
     except Exception as e:
-        logger.error(f"Error processing spam example: {e}", exc_info=True)
+        logger.warning(f"Error processing spam example: {e}", exc_info=True)
         admin = await get_admin(admin_id)
         lang = _resolve_admin_lang(admin)
         await callback.answer(t(lang, "private.error_generic"), show_alert=True)
@@ -555,7 +555,7 @@ async def _fill_lookup_context_if_needed(
         admin_group_ids=admin_group_ids,
     )
     if not lookup_result:
-        logger.error(
+        logger.info(
             "No matching message found in message_lookup_cache",
             extra={
                 "message_lookup": "miss",

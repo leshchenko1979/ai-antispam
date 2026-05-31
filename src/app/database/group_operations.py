@@ -282,12 +282,12 @@ async def get_admin_groups(admin_id: int) -> List[Dict]:
                     )
                     inaccessible_groups.append(row["group_id"])
                 elif isinstance(e, TelegramBadRequest):
-                    logger.error(
+                    logger.info(
                         f"Telegram error getting chat {row['group_id']}: {e}",
                         exc_info=True,
                     )
                 else:
-                    logger.error(
+                    logger.info(
                         f"Error getting chat {row['group_id']}: {e}",
                         exc_info=True,
                     )
@@ -298,7 +298,7 @@ async def get_admin_groups(admin_id: int) -> List[Dict]:
             try:
                 await cleanup_group_data(group_id)
             except Exception as e:
-                logger.error(f"Failed to cleanup inaccessible group {group_id}: {e}")
+                logger.info(f"Failed to cleanup inaccessible group {group_id}: {e}")
 
         return groups
 

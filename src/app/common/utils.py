@@ -84,7 +84,7 @@ async def _retry_before_sleep(retry_state: RetryCallState) -> None:
             exc,
         )
     else:
-        logger.warning(
+        logger.info(
             "All retries failed with error: %s",
             exc,
             exc_info=True,
@@ -118,7 +118,7 @@ async def send_admin_dm(admin_id: int, text: str, log_context: str = "message") 
         await _send()
         return True
     except Exception as e:
-        logger.warning(
+        logger.info(
             f"Failed to send {log_context} to admin {admin_id}: {e}",
             exc_info=True,
         )
@@ -143,7 +143,7 @@ def spam_notify_spammers_via_mcp_enabled() -> bool:
             return True
         if normalized in {"0", "false", "no", "off"}:
             return False
-        logger.warning(
+        logger.info(
             "Invalid SPAM_NOTIFY_SPAMMERS_VIA_MCP value '%s', falling back to config",
             env_value,
         )
@@ -328,7 +328,7 @@ def clean_alert_text(text: str | None) -> str | None:
                 ]
                 return "\n".join(lines).strip()
         except Exception as e:
-            logger.error(f"Error cleaning alert text: {e}")
+            logger.info(f"Error cleaning alert text: {e}")
     return text
 
 
