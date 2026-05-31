@@ -58,7 +58,9 @@ This is where spammers start using automated accounts that behave like real user
 
 **Why most bots fail here:** Rule-based systems look for spam keywords or posting frequency. A bot that posts 3 innocent messages before the spam link looks completely normal to a keyword filter. The spam link itself might use Level 2 obfuscation too.
 
-**Real case:** A spam bot joined a 500-member tech group, commented on a discussion about Python frameworks, then DMed every member with a "lucrative freelance offer" that led to a crypto drainer. The anti-spam bot at the time only checked public messages.
+**Real case:** A spam bot joined a 500-member tech group, commented on a discussion about Python frameworks, then DMed every member with a "lucrative freelance offer" that led to a crypto drainer. The anti-spam bot at the time only checked public messages — it didn't flag the comments because they contained no spam keywords.
+
+The key insight for our context: while no group-level bot can block DMs, a bot that analyzes message *content and intent* would have deleted those initial trust-building comments in the group chat. The spammer's messages broke no keyword rules, but an AI model trained on spam behavior patterns would have flagged them as suspicious — effectively breaking the attack chain before the DM phase began.
 
 ---
 
