@@ -33,13 +33,13 @@ Most built-in Telegram filters and entry-level bots handle this well. Nothing ne
 
 Spammers learned that keyword-based filters can be fooled by modifying the text:
 
-- **Transliteration:** "рeгистрируйся" (Cyrillic characters that look like Latin letters)
-- **Homoglyphs:** "сrурtо" (mix of Cyrillic, Latin, and Greek characters)
-- **Character substitution:** "Привeт! Зaрaбoтoк oт 1000$ в дeнь" (e and o replaced with lookalikes)
+- **Transliteration:** "r3g1st3r" (Latin letters replaced with lookalike numbers)
+- **Homoglyphs:** "g00gle.c0m" (number 0 for letter O)
+- **Character substitution:** "fr33 m0n3y" (e→3, o→0 numeric substitutions)
 - **Space injection:** "j o i n  m y  c h a n n e l"
 - **Zero-width characters:** Invisible characters inserted between letters
 
-Neural moderation catches these because it works on semantic embeddings, not character-level patterns. A transformer model sees that "рeгистрируйся нa биржe" has the same meaning as "register on the exchange" regardless of character tricks.
+Neural moderation catches these because it works on semantic embeddings, not character-level patterns. A transformer model understands semantic meaning — it sees that "r3g1st3r" has the same intent as "register" regardless of character substitutions.
 
 **The catch:** Most anti-spam bots still rely on regex and keyword lists. They miss the majority of Level 2 attacks.
 
