@@ -8,7 +8,6 @@ from typing import Any, Dict, Optional
 import yaml
 from aiogram import types
 from aiogram.exceptions import (
-    TelegramAPIError,
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramNetworkError,
@@ -50,7 +49,7 @@ _NON_RETRYABLE_TELEGRAM_API = (
 def _is_retryable_network_error(exc: BaseException) -> bool:
     if isinstance(exc, _NON_RETRYABLE_TELEGRAM_API):
         return False
-    return bool(isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS))
+    return isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS)
 
 
 _EXPONENTIAL_WAIT = wait_exponential(multiplier=0.5, min=0.5, max=10)

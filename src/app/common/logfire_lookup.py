@@ -1,6 +1,5 @@
 """Logfire query utilities. get_weekly_stats for admin dashboard; message lookup is PostgreSQL."""
 
-
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone

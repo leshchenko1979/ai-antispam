@@ -177,7 +177,12 @@ async def handle_moderated_message(
 
     target_span = get_root_span()
     _set_classification_span_attributes(
-        target_span, is_spam, confidence, reason, message_context_result, source,
+        target_span,
+        is_spam,
+        confidence,
+        reason,
+        message_context_result,
+        source,
     )
 
     await _save_classification_lookup(message, message_context_result, user_id)
