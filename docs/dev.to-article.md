@@ -1,6 +1,6 @@
 ---
 title: "5 Levels of Telegram Spam Your Anti-Spam Bot Isn't Catching"
-published: false
+published: true
 description: "From plain-text crypto links to LLM-powered neurocommenting — a technical breakdown of Telegram spam evolution and why most moderation bots only detect the first two levels."
 tags: telegram, spam, cybersecurity, ai
 cover_image: https://images.unsplash.com/vector-1761385079498-69fa4adce7dc?q=80&w=1800&auto=format&fit=crop&ixlib=rb-4.1.0
