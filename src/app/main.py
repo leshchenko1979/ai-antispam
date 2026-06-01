@@ -179,7 +179,7 @@ async def _on_startup_log_server_started(app: web.Application) -> None:
 
 async def _shutdown(app: web.Application) -> None:
     """Gracefully shutdown all resources."""
-    logger.warning("Starting graceful shutdown...")
+    logger.info("Starting graceful shutdown...")
 
     global _scheduled_jobs_task
     if _scheduled_jobs_task and not _scheduled_jobs_task.done():

@@ -188,7 +188,7 @@ async def get_and_check_group(chat_id: int) -> Tuple[Optional[Group], str]:
     group = await get_group(chat_id)
 
     if not group:
-        logger.error(f"Group not found for chat {chat_id}")
+        logger.info(f"Group not found for chat {chat_id}")
         return None, "error_message_group_not_found"
 
     if not group.moderation_enabled:
