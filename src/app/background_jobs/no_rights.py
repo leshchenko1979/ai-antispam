@@ -87,7 +87,7 @@ async def leave_no_rights_groups() -> None:
                     "proceeding with stale cleanup"
                 )
             else:
-                logger.info(
+                logger.warning(
                     f"Error checking rights in group {group_id}: {e}",
                     exc_info=True,
                 )
@@ -100,11 +100,11 @@ async def leave_no_rights_groups() -> None:
                 if success:
                     logger.info(f"Left no-rights group {group_id}")
                 else:
-                    logger.info(
+                    logger.warning(
                         f"Failed to leave group {group_id} (unexpected cleanup failure)"
                     )
             except Exception as cleanup_e:
-                logger.info(f"Cleanup failed for {group_id}: {cleanup_e}")
+                logger.warning(f"Cleanup failed for {group_id}: {cleanup_e}")
 
     # Notify each admin about their left groups
     for admin_id, groups_list in admin_to_left_groups.items():

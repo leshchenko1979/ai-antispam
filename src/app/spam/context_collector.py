@@ -37,7 +37,7 @@ def _to_stories_context(
             extra={"user_id": user_id, "username": username, "error": str(result)},
         )
         return ContextResult(status=ContextStatus.FAILED, error=str(result))
-    return cast(ContextResult[str], result)
+    return cast("ContextResult[str]", result)
 
 
 def _to_profile_context(
@@ -53,7 +53,7 @@ def _to_profile_context(
         return SpamClassificationContext(
             linked_channel=failed, profile_photo_age=failed
         )
-    return cast(SpamClassificationContext, result)
+    return cast("SpamClassificationContext", result)
 
 
 async def collect_user_context_with_stories(
@@ -235,5 +235,5 @@ async def collect_sender_context(message) -> SpamClassificationContext:
         return await _collect_channel_sender_context(message)
     if message.from_user:
         return await _collect_user_sender_context(message)
-    logger.info("Message has no sender_chat or from_user")
+    logger.warning("Message has no sender_chat or from_user")
     return SpamClassificationContext(name="Unknown")

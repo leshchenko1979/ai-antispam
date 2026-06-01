@@ -8,7 +8,6 @@ from typing import Any, Dict, Optional
 import yaml
 from aiogram import types
 from aiogram.exceptions import (
-    TelegramAPIError,
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramNetworkError,
@@ -50,11 +49,7 @@ _NON_RETRYABLE_TELEGRAM_API = (
 def _is_retryable_network_error(exc: BaseException) -> bool:
     if isinstance(exc, _NON_RETRYABLE_TELEGRAM_API):
         return False
-    if isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS):
-        return True
-    if isinstance(exc, TelegramAPIError):
-        return False
-    return False
+    return isinstance(exc, _RETRYABLE_TRANSPORT_ERRORS)
 
 
 _EXPONENTIAL_WAIT = wait_exponential(multiplier=0.5, min=0.5, max=10)
@@ -84,7 +79,7 @@ async def _retry_before_sleep(retry_state: RetryCallState) -> None:
             exc,
         )
     else:
-        logger.info(
+        logger.warning(
             "All retries failed with error: %s",
             exc,
             exc_info=True,
@@ -118,7 +113,7 @@ async def send_admin_dm(admin_id: int, text: str, log_context: str = "message") 
         await _send()
         return True
     except Exception as e:
-        logger.info(
+        logger.warning(
             f"Failed to send {log_context} to admin {admin_id}: {e}",
             exc_info=True,
         )
@@ -143,7 +138,7 @@ def spam_notify_spammers_via_mcp_enabled() -> bool:
             return True
         if normalized in {"0", "false", "no", "off"}:
             return False
-        logger.info(
+        logger.warning(
             "Invalid SPAM_NOTIFY_SPAMMERS_VIA_MCP value '%s', falling back to config",
             env_value,
         )
@@ -311,8 +306,8 @@ def clean_alert_text(text: str | None) -> str | None:
                     line
                     for line in cleaned.splitlines()
                     if line.strip()
-                    and not any(
-                        marker in line
+                    and all(
+                        marker not in line
                         for marker in [
                             "⚠️ ТРЕВОГА!",
                             "⚠️ ВТОРЖЕНИЕ!",
@@ -328,7 +323,7 @@ def clean_alert_text(text: str | None) -> str | None:
                 ]
                 return "\n".join(lines).strip()
         except Exception as e:
-            logger.info(f"Error cleaning alert text: {e}")
+            logger.error(f"Error cleaning alert text: {e}")
     return text
 
 

@@ -37,5 +37,5 @@ def get_root_span() -> SpanLike:
     """
     span = context.get_value(ROOT_SPAN_KEY)
     if span is not None and hasattr(span, "set_attribute"):
-        return cast(SpanLike, span)
-    return cast(SpanLike, get_current_span())
+        return cast("SpanLike", span)
+    return cast("SpanLike", get_current_span())

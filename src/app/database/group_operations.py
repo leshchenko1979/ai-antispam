@@ -282,12 +282,12 @@ async def get_admin_groups(admin_id: int) -> List[Dict]:
                     )
                     inaccessible_groups.append(row["group_id"])
                 elif isinstance(e, TelegramBadRequest):
-                    logger.info(
+                    logger.error(
                         f"Telegram error getting chat {row['group_id']}: {e}",
                         exc_info=True,
                     )
                 else:
-                    logger.info(
+                    logger.error(
                         f"Error getting chat {row['group_id']}: {e}",
                         exc_info=True,
                     )
@@ -298,7 +298,7 @@ async def get_admin_groups(admin_id: int) -> List[Dict]:
             try:
                 await cleanup_group_data(group_id)
             except Exception as e:
-                logger.info(f"Failed to cleanup inaccessible group {group_id}: {e}")
+                logger.error(f"Failed to cleanup inaccessible group {group_id}: {e}")
 
         return groups
 
@@ -325,9 +325,7 @@ async def get_moderation_event_count(group_id: int, member_id: int) -> Optional[
 async def is_trusted_member(group_id: int, member_id: int) -> bool:
     """True if member is approved and has completed probation."""
     count = await get_moderation_event_count(group_id, member_id)
-    if count is None:
-        return False
-    return count >= get_probation_min_events()
+    return False if count is None else count >= get_probation_min_events()
 
 
 async def increment_moderation_events(group_id: int, member_id: int) -> None:
@@ -471,7 +469,7 @@ async def update_group_admins(
 
             # Handle both old format (just IDs) and new format (IDs with usernames)
             usernames = cast(
-                List[Optional[str]],
+                "List[Optional[str]]",
                 admin_usernames
                 if admin_usernames is not None
                 else [None] * len(admin_ids),

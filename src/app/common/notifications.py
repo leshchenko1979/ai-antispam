@@ -112,7 +112,7 @@ async def notify_admins_with_fallback_and_cleanup(
 
             # Resolve message (support per-admin customization)
             if callable(private_message):
-                msg_text = cast(Callable[[int], str], private_message)(admin_id)
+                msg_text = cast("Callable[[int], str]", private_message)(admin_id)
             else:
                 msg_text = private_message
 
@@ -157,7 +157,7 @@ async def notify_admins_with_fallback_and_cleanup(
                     continue
                 else:
                     # Other TelegramBadRequest errors (like invalid chat_id) should be treated as unreachable
-                    logger.info(
+                    logger.warning(
                         f"Telegram API error when notifying admin {admin_id}: {e}",
                         exc_info=True,
                     )

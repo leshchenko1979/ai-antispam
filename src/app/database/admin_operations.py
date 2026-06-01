@@ -176,10 +176,7 @@ async def get_admin(admin_id: int) -> Optional[Administrator]:
             admin_id,
         )
 
-        if not row:
-            return None
-
-        return _admin_from_row(row)
+        return _admin_from_row(row) if row else None
 
 
 async def get_admins_map(admin_ids: list[int]) -> dict[int, Administrator]:
@@ -316,9 +313,7 @@ async def cycle_moderation_mode(admin_id: int) -> ModerationMode | None:
 async def get_moderation_mode(admin_id: int) -> ModerationMode:
     """Get current moderation mode; defaults to notify if admin not found."""
     admin = await get_admin(admin_id)
-    if admin is None:
-        return ModerationMode.NOTIFY
-    return admin.moderation_mode
+    return ModerationMode.NOTIFY if admin is None else admin.moderation_mode
 
 
 async def get_spent_credits_last_week(admin_id: int) -> int:

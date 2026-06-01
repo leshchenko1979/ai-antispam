@@ -128,7 +128,11 @@ async def _handle_permission_update(
             await set_no_rights_detected_at(chat_id)
             # Получаем список админов группы
             admins = await bot.get_chat_administrators(chat_id)
-            admin_ids = [admin.user.id for admin in admins if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID]
+            admin_ids = [
+                admin.user.id
+                for admin in admins
+                if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID
+            ]
             await _notify_admins_about_rights(
                 chat_id,
                 chat_title,
@@ -164,7 +168,7 @@ async def _handle_permission_update(
 
                 await send_setup_confirmation()
             except Exception as e:
-                logger.info(
+                logger.warning(
                     f"Failed to send setup confirmation to admin {admin_id}: {e}",
                     exc_info=True,
                 )
@@ -231,7 +235,7 @@ async def _handle_bot_added(
 
             await send_setup_confirmation()
         except Exception as e:
-            logger.info(
+            logger.warning(
                 f"Failed to send setup confirmation to admin {admin_id}: {e}",
                 exc_info=True,
             )
@@ -276,7 +280,7 @@ async def _handle_bot_removed(
                 assume_human_admins=True,
             )
         else:
-            logger.info(
+            logger.warning(
                 f"No human admins found for group {chat_id} to notify about bot removal"
             )
 
@@ -402,7 +406,7 @@ async def _send_promo_message(
 
         await send_promo_message()
     except Exception as e:
-        logger.info(
+        logger.warning(
             f"Failed to send promo message to chat {chat_id} ('{chat_title}'): {e}"
         )
 
@@ -461,8 +465,10 @@ async def handle_member_service_message(message: types.Message) -> str:
                 try:
                     admins = await bot.get_chat_administrators(chat_id)
                     admin_ids = [
-                        admin.user.id for admin in admins
-                        if not admin.user.is_bot and admin.user.id != GROUP_ANONYMOUS_BOT_ID
+                        admin.user.id
+                        for admin in admins
+                        if not admin.user.is_bot
+                        and admin.user.id != GROUP_ANONYMOUS_BOT_ID
                     ]
                     lang = await _resolve_lang(admin_ids)
                     group_title = message.chat.title or ""
@@ -544,7 +550,7 @@ async def _deactivate_admin_after_block(admin_id: int) -> None:
         else:
             logger.info("Admin %s was already inactive when blocking the bot", admin_id)
     except Exception as exc:
-        logger.info(
+        logger.warning(
             "Failed to deactivate admin %s after blocking the bot: %s",
             admin_id,
             exc,

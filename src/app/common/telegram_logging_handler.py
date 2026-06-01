@@ -119,7 +119,7 @@ class TelegramLogHandler(logging.Handler):
                 await self._send(text)
                 drained_count += 1
             except Exception as e:
-                drain_logger.info(
+                drain_logger.warning(
                     f"TelegramLogHandler _process_queue drain stopped after {drained_count} "
                     f"messages due to error: {e}",
                     exc_info=e,
@@ -143,7 +143,7 @@ class TelegramLogHandler(logging.Handler):
                 await asyncio.wait_for(task, timeout=timeout)
             except asyncio.TimeoutError:
                 logger = logging.getLogger(__name__)
-                logger.info(
+                logger.warning(
                     f"TelegramLogHandler stop() timed out after {timeout}s, task may not have completed"
                 )
             except asyncio.CancelledError:
@@ -163,7 +163,7 @@ class TelegramLogHandler(logging.Handler):
                 await self._send(text)
                 drained_count += 1
             except Exception as e:
-                drain_logger.info(
+                drain_logger.warning(
                     f"TelegramLogHandler drain stopped early after {drained_count} messages "
                     f"due to error: {e}",
                     exc_info=e,
@@ -205,9 +205,7 @@ class TelegramLogHandler(logging.Handler):
             return False
         # If the last send is older than the dedupe window, allow and let callers
         # overwrite the timestamp.
-        if now - last_sent_at >= self._dedupe_window:
-            return False
-        return True
+        return now - last_sent_at < self._dedupe_window
 
     def _cleanup_dedupe_cache(self, now: float) -> None:
         # Keep the dict bounded and remove expired entries in place.

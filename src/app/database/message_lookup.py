@@ -21,8 +21,7 @@ DEFAULT_LOOKUP_TTL_DAYS = 7
 def _build_text_like_pattern(message_text: str) -> str:
     """Build LIKE pattern from message text. Joins first 10 words with % for robust matching."""
     first_paragraph = message_text.split("\n\n")[0][:150]
-    words = re.findall(r"\w+", first_paragraph)
-    if words:
+    if words := re.findall(r"\w+", first_paragraph):
         return "%".join(words[:10])
     return message_text[:100].replace("%", "\\%")
 

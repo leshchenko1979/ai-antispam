@@ -61,41 +61,22 @@ def _premium_from_forward(msg: types.Message) -> Optional[bool]:
     return None
 
 
-@dp.message(
-    F.chat.type == "private",
-    ~F.text.startswith("/"),
-    ~F.forward_from,
-    ~F.forward_origin,
-)
-async def handle_private_message(message: types.Message) -> str:
-    """Reply to user in private chat using LLM and message history context."""
-    if not message.from_user:
-        return "private_no_user_info"
+# ---------------------------------------------------------------------------
+# Helper functions for handle_private_message
+# ---------------------------------------------------------------------------
 
-    user = cast("types.User", message.from_user)
-    admin_id = user.id
-    admin_message = message.text
 
-    if not admin_message:
-        return "private_no_message_text"
-
-    await initialize_new_admin(admin_id)
-    await update_admin_username_if_needed(admin_id, user.username)
-
-    # Save user message to history
-    await save_message(admin_id, "user", admin_message)
-
-    # Get conversation history
-    message_history = await get_message_history(admin_id)
-
+def _read_prd() -> str:
+    """Read PRD.md content for system prompt."""
     try:
-        prd_text = pathlib.Path("PRD.md").read_text()
+        return pathlib.Path("PRD.md").read_text()
     except Exception:
-        prd_text = ""
-    spam_examples = await get_spam_examples()
+        return ""
 
-    # Format spam examples for prompt
-    formatted_examples = []
+
+def _format_spam_examples(spam_examples: list[dict]) -> list[str]:
+    """Format spam examples as XML-like strings for the LLM prompt."""
+    formatted = []
     for example in spam_examples:
         example_str = f"<пример>\n<запрос>\n<текст сообщения>\n{example['text']}\n</текст сообщения>"
         if "name" in example:
@@ -108,9 +89,13 @@ async def handle_private_message(message: types.Message) -> str:
         # DB convention: score > 0 = spam, score < 0 = legitimate
         example_str += f"{'да' if example['score'] > 0 else 'нет'} {abs(example['score'])}%\n</ответ>"
         example_str += "\n</пример>"
-        formatted_examples.append(example_str)
+        formatted.append(example_str)
+    return formatted
 
-    system_prompt = f"""
+
+def _build_system_prompt(prd_text: str, formatted_examples: list[str]) -> str:
+    """Build the system prompt with PRD description, examples, and HTML rules."""
+    return f"""
 Ты - нейромодератор, киберсущность, защищающая пользователя от спама.
 
 <функционал и стиль ответа>
@@ -152,69 +137,144 @@ async def handle_private_message(message: types.Message) -> str:
 </требования к форматированию>
 """
 
-    # Build conversation for chat agent
-    # pydantic-ai agent.run() takes a single user message string;
-    # include history as part of the user message for context
+
+def _build_conversation_text(message_history: list[dict], admin_message: str) -> str:
+    """Build the full conversation text from history for the LLM context."""
     conversation_parts = []
     for msg in message_history:
         role = msg["role"]
         content = msg["content"]
         conversation_parts.append(f"{role.upper()}: {content}")
-    user_message_text = "\n".join(conversation_parts) + f"\n\nUSER: {admin_message}"
+    return "\n".join(conversation_parts) + f"\n\nUSER: {admin_message}"
 
-    # Get response from chat agent with retry logic for HTML parsing errors
-    max_retries = 3
-    last_error = None
+
+def _is_html_error(send_error: TelegramBadRequest) -> bool:
+    """Check whether a TelegramBadRequest is caused by HTML formatting."""
+    error_msg = str(send_error).lower()
+    return any(
+        error_text in error_msg
+        for error_text in (
+            "can't parse entities",
+            "can't find end tag",
+            "unclosed tag",
+        )
+    )
+
+
+def _build_html_correction_prompt(original_message: str, broken_response: str) -> str:
+    """Build a prompt that asks the LLM to fix HTML formatting of its last response."""
+    return (
+        f"{original_message}\n\n"
+        "ПРЕДЫДУЩИЙ ОТВЕТ СОДЕРЖАЛ ОШИБКУ ФОРМАТИРОВАНИЯ HTML: "
+        f"{broken_response}\n\n"
+        "Пожалуйста, повтори ответ, строго следуя правилам HTML: "
+        "используй только <b> для жирного и <i> для курсива, "
+        "обязательно закрывай все теги."
+    )
+
+
+async def _try_provider_with_retries(
+    chat_agent,
+    *,
+    user_message_text: str,
+    system_prompt: str,
+    model_settings: ModelSettings,
+    admin_message: str,
+    admin_id: int,
+    message: types.Message,
+    max_retries: int = 3,
+) -> str:
+    """Run a single language model provider with HTML correction retries.
+
+    Tries *max_retries* times to get a reply from *chat_agent*.  On each
+    attempt the response is saved and sent to the user; if sending fails
+    with an HTML formatting error the next attempt receives the HTML
+    correction prompt (built from *admin_message* and the broken response).
+
+    Returns ``"private_message_replied"`` on success.
+    Raises the underlying exception when all retries are exhausted.
+    """
+    current_text = user_message_text
+    for retry_count in range(max_retries):
+        result = await chat_agent.run(
+            current_text,
+            instructions=system_prompt,
+            model_settings=model_settings,
+        )
+        response = result.output
+
+        await save_message(admin_id, "assistant", response)
+
+        try:
+            sanitized_response = sanitize_llm_html(response)
+            await message.reply(sanitized_response, parse_mode="HTML")
+            return "private_message_replied"
+        except TelegramBadRequest as send_error:
+            if not _is_html_error(send_error) or retry_count >= max_retries - 1:
+                raise
+            current_text = _build_html_correction_prompt(admin_message, response)
+
+    raise RuntimeError("Unreachable: retry loop exhausted without return or raise")
+
+
+# ===================================================================
+
+
+@dp.message(
+    F.chat.type == "private",
+    ~F.text.startswith("/"),
+    ~F.forward_from,
+    ~F.forward_origin,
+)
+async def handle_private_message(message: types.Message) -> str:
+    """Reply to user in private chat using LLM and message history context."""
+    if not message.from_user:
+        return "private_no_user_info"
+
+    user = cast("types.User", message.from_user)
+    admin_id = user.id
+    admin_message = message.text
+
+    if not admin_message:
+        return "private_no_message_text"
+
+    await initialize_new_admin(admin_id)
+    await update_admin_username_if_needed(admin_id, user.username)
+
+    # Save user message to history
+    await save_message(admin_id, "user", admin_message)
+
+    # Get conversation history
+    message_history = await get_message_history(admin_id)
+
+    # Build prompt components
+    prd_text = _read_prd()
+    spam_examples = await get_spam_examples()
+    formatted_examples = _format_spam_examples(spam_examples)
+    system_prompt = _build_system_prompt(prd_text, formatted_examples)
+    user_message_text = _build_conversation_text(message_history, admin_message)
+
     llm_timeout = get_llm_route_timeout()
     model_settings = ModelSettings(timeout=llm_timeout)
+    last_error = None
 
     # Try gateway first
     try:
-        for retry_count in range(max_retries):
-            chat_agent = get_chat_agent()
-            result = await chat_agent.run(
-                user_message_text,
-                instructions=system_prompt,
-                model_settings=model_settings,
-            )
-            response = result.output
-
-            await save_message(admin_id, "assistant", response)
-            sanitized_response = sanitize_llm_html(response)
-
-            try:
-                await message.reply(sanitized_response, parse_mode="HTML")
-                return "private_message_replied"
-
-            except TelegramBadRequest as send_error:
-                error_msg = str(send_error).lower()
-                is_html_error = any(
-                    error_text in error_msg
-                    for error_text in (
-                        "can't parse entities",
-                        "can't find end tag",
-                        "unclosed tag",
-                    )
-                )
-
-                if not is_html_error or retry_count >= max_retries - 1:
-                    raise send_error
-
-                # Retry with HTML correction
-                user_message_text = (
-                    f"{admin_message}\n\n"
-                    "ПРЕДЫДУЩИЙ ОТВЕТ СОДЕРЖАЛ ОШИБКУ ФОРМАТИРОВАНИЯ HTML: "
-                    f"{response}\n\n"
-                    "Пожалуйста, повтори ответ, строго следуя правилам HTML: "
-                    "используй только <b> для жирного и <i> для курсива, "
-                    "обязательно закрывай все теги."
-                )
-
+        chat_agent = get_chat_agent()
+        return await _try_provider_with_retries(
+            chat_agent,
+            user_message_text=user_message_text,
+            system_prompt=system_prompt,
+            model_settings=model_settings,
+            admin_message=admin_message,
+            admin_id=admin_id,
+            message=message,
+        )
     except asyncio.CancelledError:
-        raise  # Don't swallow cancellation — let it propagate
+        raise
     except Exception as e:
         last_error = e
-        logger.info(f"Gateway chat failed: {e}")
+        logger.warning(f"Gateway chat failed: {e}")
 
     # OpenRouter pool with rotation
     num_openrouter = len(_get_openrouter_chat_agents())
@@ -227,51 +287,22 @@ async def handle_private_message(message: types.Message) -> str:
             else f"openrouter-{i}"
         )
 
-        for retry_count in range(max_retries):
-            try:
-                result = await chat_agent.run(
-                    user_message_text,
-                    instructions=system_prompt,
-                    model_settings=model_settings,
-                )
-                response = result.output
-
-                await save_message(admin_id, "assistant", response)
-                sanitized_response = sanitize_llm_html(response)
-
-                try:
-                    await message.reply(sanitized_response, parse_mode="HTML")
-                    return "private_message_replied"
-
-                except TelegramBadRequest as send_error:
-                    error_msg = str(send_error).lower()
-                    is_html_error = any(
-                        error_text in error_msg
-                        for error_text in (
-                            "can't parse entities",
-                            "can't find end tag",
-                            "unclosed tag",
-                        )
-                    )
-
-                    if not is_html_error or retry_count >= max_retries - 1:
-                        raise send_error
-
-                    user_message_text = (
-                        f"{admin_message}\n\n"
-                        "ПРЕДЫДУЩИЙ ОТВЕТ СОДЕРЖАЛ ОШИБКУ ФОРМАТИРОВАНИЯ HTML: "
-                        f"{response}\n\n"
-                        "Пожалуйста, повтори ответ, строго следуя правилам HTML: "
-                        "используй только <b> для жирного и <i> для курсива, "
-                        "обязательно закрывай все теги."
-                    )
-                    continue  # Retry same agent with corrected prompt
-
-            except Exception as e:
-                last_error = e
-                logger.info(f"{provider_label} chat agent failed: {e}")
-                _next_openrouter_chat_agent()
-                break  # Try next OpenRouter agent
+        try:
+            return await _try_provider_with_retries(
+                chat_agent,
+                user_message_text=user_message_text,
+                system_prompt=system_prompt,
+                model_settings=model_settings,
+                admin_message=admin_message,
+                admin_id=admin_id,
+                message=message,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            last_error = e
+            logger.warning(f"{provider_label} chat agent failed: {e}")
+            _next_openrouter_chat_agent()
 
     raise RuntimeError(f"All chat providers failed. Last error: {last_error}")
 
@@ -352,7 +383,7 @@ def _append_spam_cleanup_tasks(
     if user_id := info.get("user_id"):
         tasks.append(remove_member_from_group(member_id=user_id))
     else:
-        logger.info("User ID not found in info, skipping removal from group")
+        logger.warning("User ID not found in info, skipping removal from group")
 
     group_chat_id = info.get("group_chat_id")
     group_message_id = info.get("group_message_id")
@@ -369,7 +400,7 @@ def _append_spam_cleanup_tasks(
         )
         return
 
-    logger.info(
+    logger.warning(
         "Group chat ID or message ID not found in info, skipping message deletion",
         extra={
             "message_deletion": "skipped",
@@ -438,13 +469,13 @@ async def process_spam_example_callback(callback: types.CallbackQuery) -> str:
         return "spam_example_processed"
 
     except OriginalMessageExtractionError as e:
-        logger.info(f"Failed to extract original message info: {e}")
+        logger.error(f"Failed to extract original message info: {e}")
         admin = await get_admin(admin_id)
         lang = _resolve_admin_lang(admin)
         await callback.answer(t(lang, "private.error_forward_info"), show_alert=True)
         return "spam_example_extraction_error"
     except Exception as e:
-        logger.warning(f"Error processing spam example: {e}", exc_info=True)
+        logger.error(f"Error processing spam example: {e}", exc_info=True)
         admin = await get_admin(admin_id)
         lang = _resolve_admin_lang(admin)
         await callback.answer(t(lang, "private.error_generic"), show_alert=True)

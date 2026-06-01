@@ -9,8 +9,9 @@ LogfireQueryClient: Any = None
 
 try:
     from logfire.query_client import LogfireQueryClient
+
     _logfire_import_error: Exception | None = None
-except (ImportError, ModuleNotFoundError) as e:  # pragma: no cover
+except ImportError as e:
     # Logfire is an optional dependency in production. When it's not installed we
     # still want /stats to work and simply return zeroes instead of crashing.
     _logfire_import_error = e
@@ -118,5 +119,5 @@ async def get_weekly_stats(chat_ids: Sequence[int]) -> Dict[int, Dict[str, int]]
         return stats
 
     except Exception as e:
-        logger.info(f"Failed to get weekly stats from Logfire: {e}", exc_info=True)
+        logger.warning(f"Failed to get weekly stats from Logfire: {e}", exc_info=True)
         return stats

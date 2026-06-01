@@ -43,7 +43,7 @@ def bot_api_chat_id_to_mtproto(chat_id: int) -> Union[int, str]:
         return int(str_id[1:])
     else:
         # Fallback - shouldn't happen with valid Bot API IDs
-        logger.info(
+        logger.warning(
             "Unexpected chat ID format, returning as-is",
             extra={"chat_id": chat_id, "str_id": str_id},
         )

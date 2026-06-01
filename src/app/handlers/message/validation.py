@@ -130,7 +130,7 @@ async def fetch_linked_chat_id(chat_id: int) -> Optional[int]:
         chat_info = await bot.get_chat(chat_id)
         return getattr(chat_info, "linked_chat_id", None)
     except Exception as e:
-        logger.info(f"Failed to fetch linked_chat_id via API: {e}")
+        logger.warning(f"Failed to fetch linked_chat_id via API: {e}")
         return None
 
 

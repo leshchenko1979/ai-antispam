@@ -3,16 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 
 import html
-
-from aiogram import types
 
 from .common.utils import (
     determine_effective_user_id,
     format_chat_or_channel_display,
 )
+
+if TYPE_CHECKING:
+    from aiogram import types
 
 T = TypeVar("T")
 
@@ -405,8 +406,7 @@ class MessageNotificationContext:
             violator_username = None
 
         forward_source = ""
-        forward_chat = getattr(message, "forward_from_chat", None)
-        if forward_chat:
+        if forward_chat := getattr(message, "forward_from_chat", None):
             forward_title = getattr(forward_chat, "title", None) or "Канал"
             forward_username = getattr(forward_chat, "username", None)
             forward_source = (

@@ -306,5 +306,5 @@ async def add_spam_example(
                 )
                 return True
             except Exception as e:
-                logger.info(f"Error adding spam example: {e}")
+                logger.error(f"Error adding spam example: {e}")
                 return False

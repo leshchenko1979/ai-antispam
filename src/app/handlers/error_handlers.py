@@ -40,7 +40,10 @@ async def handle_dispatcher_error(event: ErrorEvent) -> None:
         )
         return
 
-    if isinstance(exc, TelegramForbiddenError) and "bot was blocked" in str(exc).lower():
+    if (
+        isinstance(exc, TelegramForbiddenError)
+        and "bot was blocked" in str(exc).lower()
+    ):
         logger.info("Ignoring blocked user interaction: %s", exc)
         return
 

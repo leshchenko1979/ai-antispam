@@ -61,7 +61,7 @@ async def handle_update(request: web.Request) -> web.Response:
 
     # Validate that this is a proper Telegram update
     if not isinstance(json, dict) or "update_id" not in json:
-        logger.info(f"Received invalid update format: {json}")
+        logger.warning(f"Received invalid update format: {json}")
         return web.json_response(
             {"error": "Invalid update format", "required_field": "update_id"},
             status=400,
@@ -193,7 +193,7 @@ async def _shutdown(app: web.Application) -> None:
         try:
             await telegram_handler.stop(timeout=5.0)
         except Exception as e:
-            logger.info(f"Error stopping TelegramLogHandler: {e}", exc_info=True)
+            logger.warning(f"Error stopping TelegramLogHandler: {e}", exc_info=True)
 
     async with asyncio.TaskGroup() as tg:
         tg.create_task(bot.session.close())
@@ -229,11 +229,7 @@ async def handle_temporary_error(
 ) -> web.Response:
     """Handle ModelAPIError from pydantic-ai after retries exhausted."""
     # Check if it's an HTTP error with status_code
-    if isinstance(e, ModelHTTPError):
-        status_code = e.status_code
-    else:
-        status_code = None
-
+    status_code = e.status_code if isinstance(e, ModelHTTPError) else None
     is_rate_limit = status_code == 429
     error_type = "rate_limit" if is_rate_limit else "model_api_error"
     span.tags = [error_type]
