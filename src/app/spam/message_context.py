@@ -97,7 +97,7 @@ def extract_reply_context(message: types.Message) -> Optional[str]:
     return None
 
 
-def _format_external_source(origin: object) -> str:
+def _format_external_source(origin) -> str:
     """Format a human-readable source description from a MessageOrigin object.
 
     Returns channel title (preferred), possibly with @username, or a fallback.
