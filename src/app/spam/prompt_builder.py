@@ -186,17 +186,23 @@ Telegram Premium (is_premium=true): weak legitimacy signal — paid accounts are
         """Add guidance for analyzing reply context."""
         self.prompt_parts.append("""
 ## DISCUSSION CONTEXT ANALYSIS
-The user message may be a reply to another post. The content of that original post is provided in the "REPLY CONTEXT" section.
+The user message may be a reply to another post. There are two types of reply context:
+
+1. **REPLY**: A direct reply to another message in the same chat. The content of that original message is provided in the "REPLY CONTEXT" section.
+
+2. **REPLY TO EXTERNAL SOURCE**: A reply to a message from a DIFFERENT Telegram channel or chat. This is marked with `[REPLY TO EXTERNAL SOURCE from "Channel Title"]` prefix. The quoted post text follows after the prefix.
+
+The content of the original post is provided in the "REPLY CONTEXT" section.
 
 CRITICAL INSTRUCTION:
-1. The "REPLY CONTEXT" is NOT the message you are classifying.
+1. The "REPLY CONTEXT" (both REPLY and REPLY TO EXTERNAL SOURCE) is NOT the message you are classifying.
 2. It often contains the spam message that the user is replying to (e.g. asking a question about a spam offer).
 3. DO NOT classify the user's message as spam just because the "REPLY CONTEXT" is spam.
 4. ONLY use this context to check if the user's reply is RELEVANT to the conversation.
 5. "Relevant to discussion" alone does NOT mean legitimate. If the profile has strong spam indicators (bot in bio, promotional name, new account), treat even relevant comments as high-risk Trojan Horse.
-
-6. When REPLY CONTEXT is clearly a commercial or channel promo and the message to classify is only a polite, on-topic request for details (scheme, steps, how it works) without DM bait, links in the message, or self-promo in name/bio — do NOT classify as high-confidence spam based on speculation about "coordinated campaigns", "fake interest", or stacking weak empty-field signals alone. Require concrete spam cues in the message or strong profile spam indicators.
-7. High-confidence spam (e.g., 90+) requires clear evidence: concrete message-level spam cues OR multiple strong profile cues. Do not assign high confidence from weak absence signals alone.
+6. For REPLY TO EXTERNAL SOURCE specifically: the quoted text comes from another Telegram channel's post. A user responding to promotional content from an external channel with what looks like an innocent question is a HIGH-RISK pattern — treat this as a potential coordinated spam setup even if the individual message seems benign. Consider the origin channel's reputation: promotional content from an unknown or low-quality channel raises the concern further.
+7. When REPLY CONTEXT is clearly a commercial or channel promo and the message to classify is only a polite, on-topic request for details (scheme, steps, how it works) without DM bait, links in the message, or self-promo in name/bio — do NOT classify as high-confidence spam based on speculation about "coordinated campaigns", "fake interest", or stacking weak empty-field signals alone. Require concrete spam cues in the message or strong profile spam indicators.
+8. High-confidence spam (e.g., 90+) requires clear evidence: concrete message-level spam cues OR multiple strong profile cues. Do not assign high confidence from weak absence signals alone.
 
 HIGH SPAM INDICATOR: User replies that are completely unrelated to the discussion topic.
 

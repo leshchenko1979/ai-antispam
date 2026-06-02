@@ -62,20 +62,75 @@ def extract_reply_context(message: types.Message) -> Optional[str]:
     """
     Extract context from the message being replied to.
 
+    Handles two types of reply context:
+    1. Same-chat reply via reply_to_message (existing)
+    2. Cross-chat reply via external_reply + quote (new — reply to an external source)
+
     Args:
         message: The message that might be a reply
 
     Returns:
         Reply context text if this is a reply, None otherwise
     """
-    if not message.reply_to_message:
-        return None
+    # Same-chat reply (existing behavior)
+    if message.reply_to_message:
+        return (
+            message.reply_to_message.text
+            or message.reply_to_message.caption
+            or "[MEDIA_MESSAGE]"
+        )
 
-    return (
-        message.reply_to_message.text
-        or message.reply_to_message.caption
-        or "[MEDIA_MESSAGE]"
-    )
+    # Cross-chat reply — reply to a message from another channel/chat
+    if message.external_reply:
+        source = _format_external_source(message.external_reply.origin)
+        quoted = message.quote.text[:2000].strip() if message.quote and message.quote.text else None
+        logger.debug(
+            "Cross-channel reply detected: origin_type=%s, source=%s, quoted_len=%s",
+            message.external_reply.origin.type if message.external_reply.origin else None,
+            source,
+            len(quoted) if quoted else 0,
+        )
+        if quoted:
+            return f'[REPLY TO EXTERNAL SOURCE from "{source}"]: {quoted}'
+        return f"[REPLY TO EXTERNAL SOURCE from {source}]"
+
+    return None
+
+
+def _format_external_source(origin: object) -> str:
+    """Format a human-readable source description from a MessageOrigin object.
+
+    Returns channel title (preferred), possibly with @username, or a fallback.
+    Title is more informative than username for spam classification context.
+    """
+    if origin is None:
+        return "unknown source"
+
+    if origin.type == "channel":
+        if chat := origin.chat:
+            parts = []
+            if chat.title:
+                parts.append(chat.title)
+            if chat.username:
+                parts.append(f"@{chat.username}")
+            return " / ".join(parts) if parts else "channel"
+        return "channel"
+    elif origin.type == "chat":
+        if chat := origin.sender_chat:
+            if chat.title:
+                return chat.title
+            return f"@{chat.username}" if chat.username else "group"
+        return "group"
+    elif origin.type == "hidden_user":
+        return origin.sender_user_name or "hidden user"
+
+    elif origin.type == "user":
+        if user := origin.sender_user:
+            return f"@{user.username}" if user.username else user.full_name
+        return "user"
+
+    logger.warning("Unknown MessageOrigin type: %s", origin.type)
+    return "unknown source"
 
 
 def _extract_message_text(message: types.Message) -> str:
