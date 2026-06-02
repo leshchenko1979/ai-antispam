@@ -67,6 +67,23 @@ The project defines spam not just as unsolicited advertising, but as **any conte
 *   **Confirmed case (2026-05)**: Account in a real-estate discussion supergroup — message **17037** first «Привет», minutes later edited to helper-recruitment spam with phone `+79293619175`; production traces showed initial text processed via `handle_moderated_message`, spam revision delivered only as **`edited_message`** (filtered out by `updates_filter`: `~F.edited_message`).
 *   **Mitigation (2026-05)**: **Probation period** — new approvals stay on full pipeline (including `edited_message` handler) until `moderation_event_count >= probation_min_events`. Lookup cache updated on classify/edit paths. **Caveat**: members grandfathered at deploy keep trusted edit skip; tactic 10 can still affect them until trusted-user edit moderation is built.
 
+### 11. Cross-Channel Reply Abuse ("Reply to External Source" Context Bypass)
+*   **Method**: A user replies to a promotional post from **another channel** (cross-chat reply) in a discussion group. The reply appears as a regular group message but carries Telegram's `external_reply` and `quote` fields linking to the original channel post.
+*   **Hook**: The standalone reply text looks like an innocent, on-topic question (e.g. "интересно кто-нибудь сталкивался с вопросами по недвижимости в рф когда живешь за границей"). The promotional context — that this is a reaction to a channel post about new laws — is invisible without `external_reply`/`quote` parsing.
+*   **Why it works**:
+    *   Bot's `extract_reply_context()` only checks `message.reply_to_message` (same-chat replies), completely missing `external_reply` (cross-chat replies).
+    *   `message.quote` field with the quoted promotional text is also ignored.
+    *   `establish_peer_resolution_context` is skipped when the user has a username (`if username is None and …`), so thread/linked-channel context isn't resolved.
+    *   The LLM receives `reply=None` even though the message is an explicit reply with quoted content.
+*   **Confirmed case (2026-06-01)**: In `@redevest_chat`, message **17150** from `u2000_lev_kz` — user replied to a promotional post from channel `@gervits_eli` (Израиль - с Эли Гервицем, message 698) about new Russian property law allowing asset seizure abroad. Logfire confirmed:
+    *   `external_reply.origin.type: "channel"` pointing to `@gervits_eli`
+    *   `quote` containing full post text (with formatting, 1500+ chars)
+    *   `reply_to_message`: `None` (no same-chat reply)
+    *   `moderation_source: "new"` (regular message handler)
+    *   Bot classified as 90% not-spam — standalone text is innocent without reply context.
+*   **Weakness / detection hints**: `message.external_reply` present (and/or `message.quote`); message feels topically disconnected from surrounding group discussion but exactly matches quoted channel post topic; reply comes from a user who rarely participates but jumps on channel cross-posts.
+*   **Mitigation (2026-06)**: `extract_reply_context()` updated to check `message.external_reply` (fallback to `reply_to_message`); extracts `quote` text for LLM context. Reply context is now tagged as `[REPLY TO EXTERNAL SOURCE from "Channel Title"]` in the prompt, and `add_reply_context_guidance()` explicitly instructs the LLM about this reply type.
+
 ## Mostly Used Spam Tactics
 
 Based on current trends, the most frequent tactics are:
@@ -76,7 +93,7 @@ Based on current trends, the most frequent tactics are:
 4.  **Knowledge Sharing Bait**: Offering free PDFs or courses to start a private conversation.
 5.  **Native Ad Imitation**: Starting a conversation about a specific niche (real estate, crypto) to eventually drop a "recommendation".
 
-**Emerging (monitor)**: **Benign-then-edit** (tactic 10) — partially mitigated for new probation members; monitor grandfathered trusted users on edits.
+**Emerging (monitor)**: **Benign-then-edit** (tactic 10) — partially mitigated for new probation members; monitor grandfathered trusted users on edits. **Cross-Channel Reply Abuse** (tactic 11) — not yet mitigated, requires code fix in `extract_reply_context()` and `establish_peer_resolution_context`.
 
 ## Confirmed Spam Examples from Database
 
