@@ -83,7 +83,13 @@ def extract_reply_context(message: types.Message) -> Optional[str]:
     # Cross-chat reply — reply to a message from another channel/chat
     if message.external_reply:
         source = _format_external_source(message.external_reply.origin)
-        quoted = message.quote.text if message.quote else None
+        quoted = message.quote.text[:2000].strip() if message.quote and message.quote.text else None
+        logger.debug(
+            "Cross-channel reply detected: origin_type=%s, source=%s, quoted_len=%s",
+            message.external_reply.origin.type if message.external_reply.origin else None,
+            source,
+            len(quoted) if quoted else 0,
+        )
         if quoted:
             return f'[REPLY TO EXTERNAL SOURCE from "{source}"]: {quoted}'
         return f"[REPLY TO EXTERNAL SOURCE from {source}]"
@@ -91,7 +97,7 @@ def extract_reply_context(message: types.Message) -> Optional[str]:
     return None
 
 
-def _format_external_source(origin) -> str:
+def _format_external_source(origin: object) -> str:
     """Format a human-readable source description from a MessageOrigin object.
 
     Returns channel title (preferred), possibly with @username, or a fallback.
@@ -113,9 +119,7 @@ def _format_external_source(origin) -> str:
         if chat := origin.sender_chat:
             if chat.title:
                 return chat.title
-            if chat.username:
-                return f"@{chat.username}"
-            return "group"
+            return f"@{chat.username}" if chat.username else "group"
         return "group"
     elif origin.type == "hidden_user":
         return origin.sender_user_name or "hidden user"
@@ -124,6 +128,8 @@ def _format_external_source(origin) -> str:
         if user := origin.sender_user:
             return f"@{user.username}" if user.username else user.full_name
         return "user"
+
+    logger.warning("Unknown MessageOrigin type: %s", origin.type)
     return "unknown source"
 
 
