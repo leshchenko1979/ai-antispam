@@ -170,3 +170,48 @@ async def test_perform_complete_group_cleanup_unexpected_error_returns_false():
 
     assert success is False
     mock_cleanup.assert_not_called()
+
+
+class TestNotifyAdminsChatNotFound:
+    """Test that 'chat not found' when sending admin DM is logged at debug, not warning."""
+
+    @pytest.fixture
+    def mock_bot(self):
+        bot = MagicMock()
+        bot.get_chat = AsyncMock()
+        bot.send_message = AsyncMock()
+        bot.leave_chat = AsyncMock()
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_send_message_chat_not_found_logs_debug_not_warning(self, mock_bot, caplog):
+        """When send_message fails with 'chat not found', log at debug level."""
+        admin_ids = [8553558763]
+        group_id = -1001234567890
+
+        # get_chat succeeds (bot can read user info), but send_message fails
+        mock_bot.get_chat.return_value = MagicMock(type="private", is_bot=False)
+        mock_bot.send_message.side_effect = TelegramBadRequest(
+            method=MagicMock(), message="Telegram server says - Bad Request: chat not found"
+        )
+
+        result = await notify_admins_with_fallback_and_cleanup(
+            mock_bot,
+            admin_ids,
+            group_id,
+            "Test message",
+            cleanup_if_group_fails=False,
+        )
+
+        assert result["notified_private"] == []
+        assert admin_ids[0] in result["unreachable"]
+
+        # Should log at debug level, not warning — this is expected behavior
+        warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+        got_messages = [r.message for r in warning_logs]
+        assert len(warning_logs) == 0, (
+            f"Expected no WARNING logs for 'chat not found', got: {got_messages}"
+        )
+        debug_logs = [r for r in caplog.records if r.levelname == "DEBUG"]
+        assert len(debug_logs) == 1
+        assert "not started a conversation" in debug_logs[0].message
