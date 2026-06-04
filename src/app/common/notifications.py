@@ -155,6 +155,14 @@ async def notify_admins_with_fallback_and_cleanup(
                     # Don't treat content parsing errors as "unreachable admin"
                     # These should be fixed in the message formatting, not trigger fallback
                     continue
+                elif "chat not found" in error_msg.lower():
+                    # User has not started a conversation with the bot — expected for
+                    # admins who never messaged the bot. Log at debug, not warning.
+                    logger.debug(
+                        f"Cannot notify admin {admin_id}: user has not started a "
+                        f"conversation with the bot. Admin should send /start to enable notifications."
+                    )
+                    unreachable.append(admin_id)
                 else:
                     # Other TelegramBadRequest errors (like invalid chat_id) should be treated as unreachable
                     logger.warning(
