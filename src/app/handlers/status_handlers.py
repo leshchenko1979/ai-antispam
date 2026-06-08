@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from ..common.trace_context import get_root_span
 
 from ..common.bot import bot
-from ..common.telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_permission_error
+from ..common.telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_message_not_found_error, is_permission_error
 from ..common.notifications import notify_admins_with_fallback_and_cleanup
 from ..common.utils import (
     format_chat_or_channel_display,
@@ -512,6 +512,11 @@ async def handle_member_service_message(message: types.Message) -> str:
                         f"Failed to notify admins about missing rights: {notify_exc}"
                     )
                     return "service_message_no_rights"
+            elif is_message_not_found_error(e):
+                logger.debug(
+                    f"Service message {message_id} already gone in chat {chat_id} ('{message.chat.title or ''}'): {e}",
+                )
+                return "service_message_already_deleted"
             else:
                 logger.warning(
                     f"Failed to delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
