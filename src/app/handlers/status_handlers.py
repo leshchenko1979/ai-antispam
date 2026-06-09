@@ -270,6 +270,7 @@ async def _handle_bot_removed(
             current_admin_id
             for current_admin_id in group.admin_ids
             if current_admin_id > 0
+            and current_admin_id != GROUP_ANONYMOUS_BOT_ID
         )
         if human_admin_ids:
             await _notify_admins_about_removal(

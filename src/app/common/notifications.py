@@ -6,10 +6,16 @@ from typing import cast
 import logfire
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardMarkup
+from tenacity import RetryError
 
 from ..database.group_operations import cleanup_group_data
 from .bot import bot
-from .telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_group_inaccessible_error
+from .telegram_errors import (
+    GROUP_ANONYMOUS_BOT_ID,
+    is_bot_to_bot_disabled_error,
+    is_group_inaccessible_error,
+    is_message_not_found_error,
+)
 from .utils import retry_on_network_error
 
 logger = logging.getLogger(__name__)
@@ -135,6 +141,10 @@ async def notify_admins_with_fallback_and_cleanup(
                 last_admin_info = admin_chat
             logger.debug(f"Successfully notified admin {admin_id} in private")
         except Exception as e:
+            # When tenacity exhausts retries, it wraps the exception in RetryError.
+            # Unwrap it so existing TelegramBadRequest handlers work correctly.
+            if isinstance(e, RetryError) and e.last_attempt is not None:
+                e = e.last_attempt.exception()
             # Check if this is a content parsing error vs access/permission error
             if isinstance(e, TelegramBadRequest):
                 # Check for specific parsing errors in the message
@@ -155,12 +165,20 @@ async def notify_admins_with_fallback_and_cleanup(
                     # Don't treat content parsing errors as "unreachable admin"
                     # These should be fixed in the message formatting, not trigger fallback
                     continue
-                elif "chat not found" in error_msg.lower():
+                elif "chat not found" in error_msg.lower() or is_message_not_found_error(e):
                     # User has not started a conversation with the bot — expected for
                     # admins who never messaged the bot. Log at debug, not warning.
                     logger.debug(
                         f"Cannot notify admin {admin_id}: user has not started a "
                         f"conversation with the bot. Admin should send /start to enable notifications."
+                    )
+                    unreachable.append(admin_id)
+                elif is_bot_to_bot_disabled_error(e):
+                    # Recipient is a bot (e.g. GroupAnonymousBot 1087968824) that cannot
+                    # receive bot-to-bot DMs. Expected and harmless — skip silently at debug.
+                    logger.debug(
+                        f"Cannot notify admin {admin_id}: bot account cannot receive DMs "
+                        f"from other bots (USER_BOT_TO_BOT_DISABLED)."
                     )
                     unreachable.append(admin_id)
                 else:

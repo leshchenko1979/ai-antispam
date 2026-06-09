@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, cast
 from aiogram.exceptions import TelegramBadRequest
 
 from ..common.bot import bot
-from ..common.telegram_errors import is_group_inaccessible_error
+from ..common.telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_group_inaccessible_error
 from ..common.utils import load_config
 from . import admin_operations
 from .models import Group
@@ -483,6 +483,11 @@ async def update_group_admins(
 
             # Add/update admins
             for admin_id, username in zip(admin_ids, usernames):
+                # Skip GROUP_ANONYMOUS_BOT_ID — it appears in admin lists for groups with
+                # anonymous admin enabled but cannot receive bot-to-bot DMs.
+                if admin_id == GROUP_ANONYMOUS_BOT_ID:
+                    continue
+
                 # Save or update admin with username if provided
                 admin = await admin_operations.get_admin(admin_id)
                 if admin is None:

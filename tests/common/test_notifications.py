@@ -172,6 +172,58 @@ async def test_perform_complete_group_cleanup_unexpected_error_returns_false():
     mock_cleanup.assert_not_called()
 
 
+class TestNotifyAdminsBotToBotDisabled:
+    """Test that USER_BOT_TO_BOT_DISABLED (trying to DM a bot) is logged at debug."""
+
+    @pytest.fixture
+    def mock_bot(self):
+        bot = MagicMock()
+        bot.get_chat = AsyncMock()
+        bot.send_message = AsyncMock()
+        bot.leave_chat = AsyncMock()
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_send_message_user_bot_to_bot_disabled_logs_debug_not_warning(
+        self, mock_bot, caplog
+    ):
+        """When send_message fails with USER_BOT_TO_BOT_DISABLED, log at debug level.
+
+        This happens when the bot tries to notify the GroupAnonymousBot (1087968824)
+        or another bot account that cannot receive DMs from bots.
+        """
+        admin_ids = [1087968824]  # GroupAnonymousBot
+        group_id = -1001234567890
+
+        # Use assume_human_admins=True to bypass the get_chat is_bot check.
+        # This lets us test the actual USER_BOT_TO_BOT_DISABLED error handling path.
+        mock_bot.get_chat.return_value = MagicMock(type="private")
+        mock_bot.send_message.side_effect = TelegramBadRequest(
+            method=MagicMock(),
+            message="Telegram server says - Bad Request: USER_BOT_TO_BOT_DISABLED",
+        )
+
+        result = await notify_admins_with_fallback_and_cleanup(
+            mock_bot,
+            admin_ids,
+            group_id,
+            "Test message",
+            cleanup_if_group_fails=False,
+            assume_human_admins=True,
+        )
+
+        assert result["notified_private"] == []
+        assert admin_ids[0] in result["unreachable"]
+
+        # Should log at debug, not warning — this is expected for bot accounts
+        warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_logs) == 0, (
+            f"Expected no WARNING logs for USER_BOT_TO_BOT_DISABLED, got: {[r.message for r in warning_logs]}"
+        )
+        debug_logs = [r for r in caplog.records if r.levelname == "DEBUG"]
+        assert len(debug_logs) >= 1
+
+
 class TestNotifyAdminsChatNotFound:
     """Test that 'chat not found' when sending admin DM is logged at debug, not warning."""
 

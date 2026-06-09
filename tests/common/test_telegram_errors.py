@@ -10,6 +10,7 @@ from aiogram.exceptions import (
 )
 
 from src.app.common.telegram_errors import (
+    is_bot_to_bot_disabled_error,
     is_group_inaccessible_error,
     is_message_not_found_error,
     is_permission_error,
@@ -135,3 +136,24 @@ def test_is_webhook_retryable_bad_request():
 
 def test_is_webhook_retryable_unknown():
     assert is_webhook_retryable(RuntimeError("bug")) is False
+
+
+def test_is_bot_to_bot_disabled_error():
+    """Bots cannot receive DMs from other bots unless user allows it."""
+    err = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: USER_BOT_TO_BOT_DISABLED"
+    )
+    assert is_bot_to_bot_disabled_error(err) is True
+
+
+def test_is_bot_to_bot_disabled_error_unrelated():
+    """Unrelated errors should not be classified as bot-to-bot disabled."""
+    err = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: chat not found"
+    )
+    assert is_bot_to_bot_disabled_error(err) is False
+
+
+def test_is_bot_to_bot_disabled_error_non_telegram():
+    """Non-Telegram errors should not match."""
+    assert is_bot_to_bot_disabled_error(RuntimeError("network")) is False

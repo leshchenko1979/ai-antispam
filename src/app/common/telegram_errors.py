@@ -38,6 +38,10 @@ _MESSAGE_NOT_FOUND_MARKERS = (
     "message not found",
 )
 
+_BOT_TO_BOT_DISABLED_MARKERS = (
+    "user_bot_to_bot_disabled",
+)
+
 
 def _error_message_contains(error: Exception, markers: tuple[str, ...]) -> bool:
     msg = str(error).lower()
@@ -65,6 +69,17 @@ def is_message_not_found_error(error: Exception) -> bool:
     if isinstance(error, (TelegramBadRequest, TelegramNotFound)):
         return _error_message_contains(error, _MESSAGE_NOT_FOUND_MARKERS)
     return False
+
+
+def is_bot_to_bot_disabled_error(error: Exception) -> bool:
+    """True when sending a DM fails because the recipient is a bot that doesn't allow bot DMs.
+
+    This happens with Telegram's GroupAnonymousBot (1087968824) which appears in admin lists
+    of groups with anonymous admin enabled. It cannot receive bot-to-bot DMs.
+    """
+    if not isinstance(error, TelegramBadRequest):
+        return False
+    return _error_message_contains(error, _BOT_TO_BOT_DISABLED_MARKERS)
 
 
 _WEBHOOK_RETRYABLE_TYPES = (

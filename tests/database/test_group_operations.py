@@ -20,6 +20,7 @@ from app.database import (
     is_trusted_member,
     remove_member_from_group,
     set_group_moderation,
+    update_group_admins,
     set_moderation_events,
     set_no_rights_detected_at,
 )
@@ -433,3 +434,33 @@ async def test_remove_member_clears_probation_counter(patched_db_conn, clean_db)
     await set_moderation_events(group_id, member_id, 3)
     await remove_member_from_group(member_id, group_id)
     assert await get_moderation_event_count(group_id, member_id) is None
+
+
+@pytest.mark.asyncio
+async def test_update_group_admins_excludes_group_anonymous_bot(patched_db_conn, clean_db):
+    """GROUP_ANONYMOUS_BOT_ID (1087968824) must not be inserted into group_administrators.
+
+    The GroupAnonymousBot appears in admin lists when a group has anonymous admin enabled,
+    but it cannot receive bot-to-bot DMs. We must filter it out when storing admin IDs
+    so notifications never try to reach it.
+    """
+    from app.common.telegram_errors import GROUP_ANONYMOUS_BOT_ID
+
+    group_id = -1002001
+    human_admin_id = 123456
+    admin_ids = [human_admin_id, GROUP_ANONYMOUS_BOT_ID]
+
+    await update_group_admins(group_id, admin_ids, ["human", "anonymousbot"])
+
+    async with clean_db.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT admin_id FROM group_administrators WHERE group_id = $1",
+            group_id,
+        )
+        inserted_ids = {row["admin_id"] for row in rows}
+
+    assert human_admin_id in inserted_ids
+    assert GROUP_ANONYMOUS_BOT_ID not in inserted_ids, (
+        f"GROUP_ANONYMOUS_BOT_ID ({GROUP_ANONYMOUS_BOT_ID}) must not be stored in "
+        "group_administrators — it cannot receive DMs from bots"
+    )
