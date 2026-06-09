@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -5,6 +7,17 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from src.app.common.notifications import notify_admins_with_fallback_and_cleanup
 from src.app.common.notifications import perform_complete_group_cleanup
+
+
+@pytest.fixture
+def mock_bot():
+    """Module-level mock bot for standalone test functions."""
+    bot = MagicMock()
+    bot.get_chat = AsyncMock()
+    bot.send_message = AsyncMock()
+    bot.leave_chat = AsyncMock()
+    bot.delete_message = AsyncMock()
+    return bot
 
 
 class TestNotifyAdminsWithCleanup:
@@ -267,3 +280,52 @@ class TestNotifyAdminsChatNotFound:
         debug_logs = [r for r in caplog.records if r.levelname == "DEBUG"]
         assert len(debug_logs) == 1
         assert "not started a conversation" in debug_logs[0].message
+
+
+@pytest.mark.asyncio
+async def test_send_message_user_blocked_logs_debug_not_warning(mock_bot, caplog):
+    """TelegramForbiddenError: 'bot was blocked by the user' should log at DEBUG."""
+    from unittest.mock import MagicMock
+    from tenacity import retry, stop_after_attempt
+
+    from aiogram.exceptions import TelegramForbiddenError
+
+    admin_ids = [6704196425]
+    group_id = -1001234567890
+
+    # Patch retry_on_network_error with stop_after_attempt(1) to prevent retries.
+    # This prevents tenacity from exhausting the mock's side_effect list.
+    # We use a list of 5 exceptions (4 retries + 1 initial) so all calls raise.
+    from src.app.common import utils
+
+    blocked_err = TelegramForbiddenError(
+        method=MagicMock(),
+        message="Forbidden: bot was blocked by the user",
+    )
+    mock_bot.send_message.side_effect = [blocked_err] * 5
+
+    no_retry_decorator = retry(stop=stop_after_attempt(1))
+
+    with caplog.at_level(logging.DEBUG):
+        with patch.object(utils, "retry_on_network_error", no_retry_decorator):
+            result = await notify_admins_with_fallback_and_cleanup(
+                mock_bot,
+                admin_ids,
+                group_id,
+                "Test message",
+                cleanup_if_group_fails=False,
+                assume_human_admins=True,
+            )
+
+    assert result["notified_private"] == []
+    assert admin_ids[0] in result["unreachable"]
+
+    # Should log at debug level, not warning
+    warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+    got_messages = [r.message for r in warning_logs]
+    assert len(warning_logs) == 0, (
+        f"Expected no WARNING logs for 'bot was blocked', got: {got_messages}"
+    )
+    debug_logs = [r for r in caplog.records if r.levelname == "DEBUG"]
+    assert len(debug_logs) == 1
+    assert "blocked" in debug_logs[0].message.lower()

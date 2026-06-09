@@ -10,10 +10,12 @@ from aiogram.exceptions import (
 )
 
 from src.app.common.telegram_errors import (
+    is_bot_kicked_error,
     is_bot_to_bot_disabled_error,
     is_group_inaccessible_error,
     is_message_not_found_error,
     is_permission_error,
+    is_user_blocked_error,
     is_webhook_retryable,
 )
 
@@ -157,3 +159,67 @@ def test_is_bot_to_bot_disabled_error_unrelated():
 def test_is_bot_to_bot_disabled_error_non_telegram():
     """Non-Telegram errors should not match."""
     assert is_bot_to_bot_disabled_error(RuntimeError("network")) is False
+
+
+# ─── is_user_blocked_error ──────────────────────────────────────────────────
+
+
+def test_is_user_blocked_error_true():
+    """'bot was blocked by the user' should match TelegramForbiddenError."""
+    err = TelegramForbiddenError(
+        method=MagicMock(), message="Forbidden: bot was blocked by the user"
+    )
+    assert is_user_blocked_error(err) is True
+
+
+def test_is_user_blocked_error_case_insensitive():
+    """Matching should be case-insensitive."""
+    err = TelegramForbiddenError(
+        method=MagicMock(), message="Forbidden: BOT WAS BLOCKED BY THE USER"
+    )
+    assert is_user_blocked_error(err) is True
+
+
+def test_is_user_blocked_error_wrong_type():
+    """TelegramBadRequest should not match."""
+    err = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: bot was blocked by the user"
+    )
+    assert is_user_blocked_error(err) is False
+
+
+def test_is_user_blocked_error_non_telegram():
+    """Non-Telegram errors should not match."""
+    assert is_user_blocked_error(RuntimeError("network")) is False
+
+
+# ─── is_bot_kicked_error ─────────────────────────────────────────────────────
+
+
+def test_is_bot_kicked_error_from_chat():
+    """'bot was kicked from the chat' should match."""
+    err = TelegramForbiddenError(
+        method=MagicMock(), message="Forbidden: bot was kicked from the chat"
+    )
+    assert is_bot_kicked_error(err) is True
+
+
+def test_is_bot_kicked_error_from_supergroup():
+    """'bot was kicked from the supergroup chat' should match."""
+    err = TelegramForbiddenError(
+        method=MagicMock(), message="Forbidden: bot was kicked from the supergroup chat"
+    )
+    assert is_bot_kicked_error(err) is True
+
+
+def test_is_bot_kicked_error_wrong_type():
+    """TelegramBadRequest should not match."""
+    err = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: bot was kicked from the chat"
+    )
+    assert is_bot_kicked_error(err) is False
+
+
+def test_is_bot_kicked_error_non_telegram():
+    """Non-Telegram errors should not match."""
+    assert is_bot_kicked_error(RuntimeError("network")) is False

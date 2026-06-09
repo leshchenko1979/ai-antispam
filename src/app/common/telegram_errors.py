@@ -82,6 +82,26 @@ def is_bot_to_bot_disabled_error(error: Exception) -> bool:
     return _error_message_contains(error, _BOT_TO_BOT_DISABLED_MARKERS)
 
 
+_USER_BLOCKED_MARKERS = ("bot was blocked by the user",)
+
+
+def is_user_blocked_error(error: Exception) -> bool:
+    """True when sending a DM fails because the user blocked the bot."""
+    if not isinstance(error, TelegramForbiddenError):
+        return False
+    return _error_message_contains(error, _USER_BLOCKED_MARKERS)
+
+
+_BOT_KICKED_MARKERS = ("bot was kicked from the chat", "bot was kicked from the supergroup chat")
+
+
+def is_bot_kicked_error(error: Exception) -> bool:
+    """True when the bot was kicked from the group (cannot delete messages after leaving)."""
+    if not isinstance(error, TelegramForbiddenError):
+        return False
+    return _error_message_contains(error, _BOT_KICKED_MARKERS)
+
+
 _WEBHOOK_RETRYABLE_TYPES = (
     TelegramNetworkError,
     TelegramServerError,

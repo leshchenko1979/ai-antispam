@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import cast
 
 import logfire
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup
 from tenacity import RetryError
 
@@ -12,9 +12,11 @@ from ..database.group_operations import cleanup_group_data
 from .bot import bot
 from .telegram_errors import (
     GROUP_ANONYMOUS_BOT_ID,
+    is_bot_kicked_error,
     is_bot_to_bot_disabled_error,
     is_group_inaccessible_error,
     is_message_not_found_error,
+    is_user_blocked_error,
 )
 from .utils import retry_on_network_error
 
@@ -180,6 +182,19 @@ async def notify_admins_with_fallback_and_cleanup(
                         f"Cannot notify admin {admin_id}: bot account cannot receive DMs "
                         f"from other bots (USER_BOT_TO_BOT_DISABLED)."
                     )
+                    unreachable.append(admin_id)
+                elif isinstance(e, TelegramForbiddenError):
+                    if is_user_blocked_error(e):
+                        # User blocked the bot — expected, non-critical. Log at debug.
+                        logger.debug(
+                            f"Cannot notify admin {admin_id}: bot was blocked by the user. "
+                            "This admin will not receive notifications until they unblock the bot."
+                        )
+                    else:
+                        # Other TelegramForbiddenError (e.g. bot was kicked from private chat)
+                        logger.debug(
+                            f"Cannot notify admin {admin_id}: {e}"
+                        )
                     unreachable.append(admin_id)
                 else:
                     # Other TelegramBadRequest errors (like invalid chat_id) should be treated as unreachable
