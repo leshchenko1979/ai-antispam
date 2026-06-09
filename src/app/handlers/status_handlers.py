@@ -12,7 +12,13 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from ..common.trace_context import get_root_span
 
 from ..common.bot import bot
-from ..common.telegram_errors import GROUP_ANONYMOUS_BOT_ID, is_message_not_found_error, is_permission_error
+from ..common.telegram_errors import (
+    GROUP_ANONYMOUS_BOT_ID,
+    is_bot_kicked_error,
+    is_message_not_found_error,
+    is_permission_error,
+    is_user_blocked_error,
+)
 from ..common.notifications import notify_admins_with_fallback_and_cleanup
 from ..common.utils import (
     format_chat_or_channel_display,
@@ -235,10 +241,15 @@ async def _handle_bot_added(
 
             await send_setup_confirmation()
         except Exception as e:
-            logger.warning(
-                f"Failed to send setup confirmation to admin {admin_id}: {e}",
-                exc_info=True,
-            )
+            if is_user_blocked_error(e):
+                logger.debug(
+                    f"Admin {admin_id} blocked the bot — skipping setup confirmation",
+                )
+            else:
+                logger.warning(
+                    f"Failed to send setup confirmation to admin {admin_id}: {e}",
+                    exc_info=True,
+                )
 
 
 @logfire.no_auto_trace
@@ -518,6 +529,11 @@ async def handle_member_service_message(message: types.Message) -> str:
                     f"Service message {message_id} already gone in chat {chat_id} ('{message.chat.title or ''}'): {e}",
                 )
                 return "service_message_already_deleted"
+            elif is_bot_kicked_error(e):
+                logger.debug(
+                    f"Bot was kicked from chat {chat_id} ('{message.chat.title or ''}') — skipping delete",
+                )
+                return "service_message_bot_kicked"
             else:
                 logger.warning(
                     f"Failed to delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
@@ -525,11 +541,17 @@ async def handle_member_service_message(message: types.Message) -> str:
                 )
                 return "service_message_delete_failed"
         except Exception as e:
-            logger.warning(
-                f"Failed to delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
-                exc_info=True,
-            )
-            return "service_message_delete_failed"
+            if is_bot_kicked_error(e):
+                logger.info(
+                    f"Bot was kicked from chat {chat_id} ('{message.chat.title or ''}') — skipping delete",
+                )
+                return "service_message_bot_kicked"
+            else:
+                logger.warning(
+                    f"Failed to delete service message {message_id} in chat {chat_id} ('{message.chat.title or ''}'): {e}",
+                    exc_info=True,
+                )
+                return "service_message_delete_failed"
 
     except Exception as e:
         logger.error(
