@@ -12,7 +12,6 @@ from ..database.group_operations import cleanup_group_data
 from .bot import bot
 from .telegram_errors import (
     GROUP_ANONYMOUS_BOT_ID,
-    is_bot_kicked_error,
     is_bot_to_bot_disabled_error,
     is_group_inaccessible_error,
     is_message_not_found_error,
