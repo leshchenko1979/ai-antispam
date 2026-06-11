@@ -103,7 +103,7 @@ async def handle_update(request: web.Request) -> web.Response:
             if update_time := get_dotted_path(json, "*.edit_date") or get_dotted_path(
                 json, "*.date"
             ):
-                serve_time = time.time() - update_time
+                serve_time = max(0.0, time.time() - update_time)
                 span.set_attribute("serve_time", serve_time)
                 serve_time_histogram.record(serve_time)
 
