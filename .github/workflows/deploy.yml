@@ -10,6 +10,7 @@ on:
       - 'docker-compose.yml'
       - '.github/workflows/deploy.yml'
       - 'uv.lock'
+      - 'config.yaml'
   workflow_dispatch:
 
 permissions:
