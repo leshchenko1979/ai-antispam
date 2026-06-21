@@ -8,6 +8,7 @@
 - Поиска администраторов с минимальным количеством кредитов
 """
 
+import asyncio
 import logging
 from typing import Optional, Sequence, Tuple, Union
 
@@ -86,9 +87,11 @@ async def handle_deactivation(chat_id: int) -> None:
 
         # Pre-resolve admin languages and group display names
         default_lang = "en"
+        admin_objs = await asyncio.gather(
+            *(get_admin(aid) for aid in human_admin_ids)
+        )
         admin_langs: dict[int, str] = {}
-        for aid in human_admin_ids:
-            admin_obj = await get_admin(aid)
+        for aid, admin_obj in zip(human_admin_ids, admin_objs):
             admin_langs[aid] = (
                 normalize_lang(admin_obj.language_code)
                 if admin_obj and admin_obj.language_code
@@ -113,7 +116,7 @@ async def handle_deactivation(chat_id: int) -> None:
             human_admin_ids,
             chat_id,
             private_message=_deactivation_message,
-            group_message_template="{mention}, moderation has been deactivated due to insufficient credits. Please add credits to continue.",
+            group_message_template="{mention}, " + t(default_lang, "deactivate.group_fallback_message"),
             cleanup_if_group_fails=False,
             assume_human_admins=True,
         )
