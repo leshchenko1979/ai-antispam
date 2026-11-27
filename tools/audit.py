@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime
 import json
 import math
@@ -1060,6 +1061,19 @@ GATE_WALLS_SEC: dict[str, float] = {
     # wall is deliberately generous because a timeout here reports a PASSING gate as a
     # failure, which is the exact defect the 100.12s entry above was corrected for.
     "tests/test_questions.py": 2537.0,
+    # DECLARED 2026-11-27 (#165). This gate was registered with NO entry, so it fell to
+    # DEFAULT_GATE_WALL_SEC = 30.0 and was measured at **45.10 s** wall on 2026-11-27
+    # (whole command, `/usr/bin/python3.14 -m pytest tests/test_audit_interpreter_binding.py
+    # -q`, rc=0, 6 passed in 28.50 s of pytest-reported work) -- the bare default left only
+    # 0.67x on the measured runtime, so the audit killed a HEALTHY gate and the run read
+    # UNKNOWN. That is the exact defect #240 exists to prevent, found by a real audit run
+    # rather than by a reader.
+    #
+    # Derivation per the manifest's margin law: 4.0 x 45.10 + 0.75 = 181.15, rounded UP to
+    # the whole second -> 182.0 (4.0355x on the measurement). The 17.5 s of the 45.10 is this
+    # gate's own work; the rest is interpreter + plugin startup, which is why a PYTEST-FORM
+    # gate's wall is dominated by startup rather than by its checks.
+    "tests/test_audit_interpreter_binding.py": 182.0,
 }
 
 # PYTEST-FORM WALLS (#107). These nine gates have no `__main__`, so they run ONLY under
@@ -1779,6 +1793,86 @@ def render_gate_line(g: dict[str, Any]) -> str:
         line += f" [retried once — {g.get('attempts', 2)} attempt(s)]"
     return line
 
+def _gate_worker_count() -> int:
+    """How many gates the audit runs CONCURRENTLY. Default 1 (#165, lever 3).
+
+    The default is 1 because that is what the audit has always done, and the measured
+    evidence does not support changing it: see `_run_gate_set`'s docstring for the numbers.
+
+    `AUDIT_GATE_WORKERS` is read as a POSITIVE INTEGER; anything unparseable, zero or
+    negative is a WARNING plus the default, never a crash and never a silent clamp -- a
+    typo in an env var must not change the audit's behaviour without saying so.
+    """
+    raw = os.environ.get("AUDIT_GATE_WORKERS", "").strip()
+    if not raw:
+        return 1
+    try:
+        n = int(raw)
+    except ValueError:
+        print(f"AUDIT_GATE_WORKERS={raw!r} is not an integer -- using 1 worker")
+        return 1
+    if n < 1:
+        print(f"AUDIT_GATE_WORKERS={n} is not a positive count -- using 1 worker")
+        return 1
+    return n
+
+
+def _run_gate_set(gates_to_run: list[list[str]], repo_root: Path) -> list[dict[str, Any]]:
+    """Run every gate and return the results IN REGISTRATION ORDER.
+
+    ## Why a thread pool exists here at all, and why it defaults to OFF
+
+    This box runs 4 cores at load 15-27 (co-tenant contention, measured 2026-11-27). The
+    audit's 65 gates are almost entirely fork/exec-bound: a 1000 s gate is 1000 s of waiting
+    on children, not 1000 s of this process's CPU. So in principle the wall clock is
+    `sum(budget)` under 1 worker and `max(budget)` under N.
+
+    THAT ARITHMETIC IS A HYPOTHESIS, NOT A RESULT. The gates' CHILDREN are CPU-bound, and
+    this box is already oversubscribed, so N workers may well add context switching and
+    lengthen every gate instead of shortening the total. That is why the DEFAULT IS 1: the
+    knob exists so the claim can be TESTED without editing code, and it is not turned up
+    until a measurement on a real box says it helps. `evidence/165-audit-acceleration-worklog.md`
+    records what was actually measured; if it records no gain, 1 stays the default.
+
+    A future reader with a quiet box should re-measure before turning it up. The knob is
+    not a promise that concurrency helps; it is the ability to test that claim without
+    editing code.
+
+    ## What concurrency is NOT allowed to change
+
+    * ORDER. Results come back in registration order, whatever order they finished in,
+      because the verdict table, the score arithmetic and the report all read them
+      positionally.
+    * SHAPE. Each element is exactly what `run_gate` returned; nothing is merged or wrapped.
+    * The per-gate budget line. It is printed from the WORKER thread, so the output is
+      interleaved rather than sequential -- a consequence of concurrency that the caller
+      opting in has asked for.
+    """
+    workers = _gate_worker_count()
+    if workers == 1:
+        # The historical path, kept byte-for-byte: sequential, in order, one line per gate.
+        results = []
+        for cmd in gates_to_run:
+            wall = _gate_wall(cmd)
+            if wall == DEFAULT_GATE_WALL_SEC:
+                print(f"gate budget: {_gate_wall_key(cmd)} uses the declared default {DEFAULT_GATE_WALL_SEC}s")
+            results.append(run_gate(cmd, repo_root, budget_sec=wall))
+        return results
+
+    print(f"gate workers: {workers} (AUDIT_GATE_WORKERS) -- results stay in registration order")
+
+    def _one(cmd: list[str]) -> dict[str, Any]:
+        wall = _gate_wall(cmd)
+        if wall == DEFAULT_GATE_WALL_SEC:
+            print(f"gate budget: {_gate_wall_key(cmd)} uses the declared default {DEFAULT_GATE_WALL_SEC}s")
+        return run_gate(cmd, repo_root, budget_sec=wall)
+
+    # `executor.map` yields in INPUT order regardless of completion order, which is exactly
+    # the ordering contract above -- no manual index bookkeeping, nothing to get wrong.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(_one, gates_to_run))
+
+
 def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
     """Execute all discovered mechanical gates."""
     gates_to_run: list[list[str]] = []
@@ -2148,13 +2242,7 @@ def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
     # so a bare-script registration would execute ZERO checks and exit 0.
     if (repo_root / "tests/test_audit_rates.py").is_file():
         gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_rates.py", "-q"])
-    results = []
-    for cmd in gates_to_run:
-        wall = _gate_wall(cmd)
-        if wall == DEFAULT_GATE_WALL_SEC:
-            print(f"gate budget: {_gate_wall_key(cmd)} uses the declared default {DEFAULT_GATE_WALL_SEC}s")
-        results.append(run_gate(cmd, repo_root, budget_sec=wall))
-    return results
+    return _run_gate_set(gates_to_run, repo_root)
 
 
 # The cadence leg reads the LEDGER, which records a run's HANDOFF. The scorecard artifact
