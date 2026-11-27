@@ -97,7 +97,7 @@ Receipt: `evidence/questions-gate-cache.json` (committable, diffable, not gitign
 Written ONLY after a successful run, atomically. Corrupt/unparseable receipt -> miss.
 Gate still REPORTED as PASS with a line naming the hash + the cached pass instant.
 
-## Lever 3 — LANDED, default stays 1
+## Lever 3 — LANDED, default stays 1, MEASURED on the real audit
 
 `tools/audit.py`: the `for cmd in gates_to_run:` loop is now `_run_gate_set(gates_to_run,
 repo_root)`, with `_gate_worker_count()` reading `AUDIT_GATE_WORKERS`. **Default 1** — the
@@ -110,6 +110,34 @@ never a silent clamp.
 Ordering contract verified against synthetic gates that finish in REVERSE order (0.30/0.20/
 0.10/0.00 s sleeps): results came back `['g1','g2','g3','g4']` in registration order, shape
 keys identical, elapsed 0.31 s vs 0.60 s sequential — concurrency real, ordering preserved.
+
+### MEASURED: `AUDIT_GATE_WORKERS=1` vs `=4`, same tree, same 65 gates
+
+| | Wall (birth→mtime) | Summed gate durations | Verdicts |
+|---|---|---|---|
+| Workers = 1 (default) | **540.1 s** | 535.34 s | 64 PASS, 1 FAIL |
+| Workers = 4 | **187.6 s** | **701.94 s** | 63 PASS, **2 FAIL** |
+
+**Wall: 2.88× faster. Summed gate durations: +31.1 % WORSE (535.34 s → 701.94 s).** Both
+figures are real and they point opposite ways: on a box at load ~16 on 4 cores, four
+concurrent gates contend for cores they do not have, so each gate takes longer while more of
+them overlap. Per-gate slowdowns cluster on the pytest-form gates (+18.70 s
+`test_hygiene_namespace`, +16.14 s `test_insights_gate_recorded`, +15.02 s
+`test_hygiene_inflight`); the only large win is `tools/hygiene.py --clean` (14.43 → 1.07 s),
+which was contending with a sibling for the same lock.
+
+### Why the default stays 1 — and this is not a performance judgement
+
+`tests/test_ledger.py` **PASSED at workers=1 and FAILED at workers=4** on the identical tree,
+with `- no two writers claimed the same n (append racing repair)`. Run standalone on that same
+tree it exits 0 (`578 row(s) / ledger gate passed`). So the failure is **induced by gate
+concurrency, not by this work**: the audit's own append-race probe is itself racing the
+concurrent gates' ledger appends.
+
+That is the deciding fact, and it outranks the 2.88× wall win. A default that makes a real gate
+flap is not a speed-up; it is a machine for generating false failures on a clean tree. The knob
+is shipped, configurable, documented and measured — the default stays on the deterministic path
+until the ledger gate is made concurrency-safe.
 
 ## Registry consequences (both resolved)
 
@@ -202,13 +230,18 @@ input to a hit.
 | Audit 1 (cold: cache MISS, selftest ran) | 64 | **837.57 s** | 7.53 s |
 | Audit 2 (warm: cache HIT) | 65 | **555.83 s** | 7.81 s |
 | Audit 3 (warm, re-run after a restart) | 65 | **535.34 s** | **1.81 s** |
+| Audit 4 (warm, `AUDIT_GATE_WORKERS=4`) | 65 | 701.94 s | 10.18 s |
 
 The first three rows were measured in the first pass. **Audit 3** is an independent re-run on a
 clean tree at `6e3a77d` after this session was killed and resumed, and it is the figure the
-final section of this document quotes. Its `1.81 s` against audit 2's `7.81 s` is the same
-effect the paragraph below describes — a warm gate still pays a cold-page-cache walk of the
-952-file tree once per process, so the *steady-state* gate cost is `0.29-0.44 s` and the
-per-audit cost is dominated by first-touch I/O.
+final section of this document quotes: **wall 540.1 s**, 64 PASS, 1 FAIL. Its `1.81 s` against
+audit 2's `7.81 s` is the same effect the paragraph below describes — a warm gate still pays a
+cold-page-cache walk of the 952-file tree once per process, so the *steady-state* gate cost is
+`0.29-0.44 s` and the per-audit cost is dominated by first-touch I/O.
+
+**Audit 4** is the lever-3 experiment (see that section): wall **187.6 s** but summed durations
+**701.94 s** and `test_ledger.py` flapping to FAIL. It is recorded for completeness, not as the
+recommended configuration.
 
 **The gate itself: 1028.81 s -> 7.53 s cold, 0.29-0.44 s warm.** Three consecutive warm runs
 all reported HIT and exit 0 (`0.43 / 0.44 / 0.29 s`), and the receipt's `recorded_at` and mtime
@@ -268,14 +301,22 @@ after the board is closed. Writing it from here would need the same forged bindi
 
 Full audit re-run end-to-end on a clean tree at `6e3a77d`:
 
-| | Gates | Summed gate durations | `test_questions.py` |
-|---|---|---|---|
-| Baseline (`evidence/scores/2026-11-27-self-audit.md`) | 65 | **1592.94 s** | **1028.81 s** |
-| Audit 2 (warm: cache HIT) | **65** | **535.34 s** | **1.81 s** |
+| | Gates | Summed gate durations | Wall | `test_questions.py` |
+|---|---|---|---|---|
+| Baseline (`evidence/scores/2026-11-27-self-audit.md`) | 65 | **1592.94 s** | — | **1028.81 s** |
+| Audit 3 (warm: cache HIT, default workers) | **65** | **535.34 s** | **540.1 s** | **1.81 s** |
 
 **65.11 % → 66.39 % reduction** on a like-for-like 65-gate comparison. The questions gate
 went **1028.81 s → 1.81 s**, and the receipt's mtime stayed at `09:40` through the audit —
 positive evidence it did not re-run, not merely an absence of output.
+
+Per-lever, before → after, all measured on this box:
+
+| Lever | Before | After | Basis |
+|---|---|---|---|
+| 1 — questions gate cache | 1028.81 s | 1.81 s warm / 7.53 s cold | audit 3 vs baseline; 3 warm runs 0.43/0.44/0.29 s |
+| 2 — lazy `conftest` app imports | 40.75 s `pytest --co` | 2.27–2.63 s | 5 runs, load 24.97; 8 consumer files + 49-test handler suite green |
+| 3 — gate worker pool | 540.1 s wall | 187.6 s wall at 4 workers | **default left at 1** — parallelism makes `test_ledger.py` fail |
 
 One FAIL remains, and it is environmental, not a regression:
 `test_hygiene_branch_occupancy.py` asserts `primary_branch == refs/heads/main` and reads
