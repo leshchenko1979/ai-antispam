@@ -194,6 +194,55 @@ budget. The arithmetic and both bases are in the constant's comment.
 Every doubtful input resolves toward a MISS. There is no path from an unreadable or changed
 input to a hit.
 
+## MEASURED: full audit, twice
+
+| | Gates | Summed gate durations | `test_questions.py` |
+|---|---|---|---|
+| Baseline (`evidence/scores/2026-11-27-self-audit.md`) | 65 | **1592.94 s** | **1028.81 s** |
+| Audit 1 (cold: cache MISS, selftest ran) | 64 | **837.57 s** | 7.53 s |
+| Audit 2 (warm: cache HIT) | 65 | **555.83 s** | 7.81 s |
+
+**The gate itself: 1028.81 s -> 7.53 s cold, 0.44-0.62 s warm.** Three consecutive warm runs
+all reported HIT and exit 0; the receipt's `recorded_at` was unchanged after audit 2, which is
+positive evidence the gate did not re-run rather than an absence of output.
+
+**Overall: 1592.94 s -> 555.83 s, a 65.11 % reduction.** The audit-2 number is the honest
+comparison against the 1592.94 s baseline because it carries the same 65 gates; audit 1 ran 64
+because the questions gate's own receipt was being established.
+
+Two caveats stated rather than buried. First, the summed gate durations are the audit's own
+per-gate `(Xs)` figures added up, not a wall clock — the audit runs gates sequentially, so the
+two are close but the sum is what the report prints. Second, audit 1's failure
+(`test_single_writer.py`) and audit 2's failure (`test_hygiene_branch_occupancy.py`) are both
+real findings, and both are now fixed: the first wanted the receipt declared as a state
+surface, the second asserts the tree is on `main` and this work is on a named branch — it
+reports **9 passed on `main`** and fails only because the branch is
+`165-audit-acceleration`.
+
+## A fourth defect, found by the audit itself
+
+`tests/test_audit_interpreter_binding.py` was registered with NO `GATE_WALLS_SEC` entry, so it
+fell to `DEFAULT_GATE_WALL_SEC = 30.0` and measured **45.10 s** on 2026-11-27 — the audit
+killed a healthy gate and the run read UNKNOWN. Declared at **182.0** = 4.0 x 45.10 + 0.75
+rounded up (4.0355x on the measurement), arithmetic in the comment.
+
+This is the same class as the #240 inversion fixed above, and neither was visible to a reader:
+the first needed a real audit run to surface, the second needed a reader who knew the two
+constants had to be reconciled.
+
+## Ledger rows: NOT written, and why
+
+`tools/ledger.py append` refuses with `session b1903093-... matches no lane declared in 1
+fragment(s)`. That is correct behaviour: the live path accepts only a DERIVED actor, and
+`registry.all_bindings()` carries zero rows for this session — it is a headless session, not a
+Telegram lane bound to a factory topic, so there is no lane for it to resolve to. The
+`--actor` flag cannot override it (a declared actor that does not match the derived role is
+refused by the same law), and the only escape is `bootstrap`, which requires an EMPTY ledger
+and a `genesis` event. Forging a lane binding to satisfy the writer would be exactly the
+kind of false record the law exists to prevent, so the rows are left unwritten and stated
+here. **The board issue #165 remains OPEN** and should be closed by a session that resolves
+to a lane.
+
 ## Still to do
 1. Full audit run, twice (second must show the cache hit).
 2. Ledger rows: intake/claim/close. Close needs `--rework none` + `board=closed head=<sha>`.
