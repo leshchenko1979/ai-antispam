@@ -18,6 +18,7 @@ version: 0.1.0
 | `evidence/rework.md` | every defect, with its root cause and what now prevents it | `HQ`, at the close that resolved it | read-only, gated by `tests/test_rework.py` |
 | `evidence/scores/<date>.md` | one measurement run, one file per run | the measurement job | read-only |
 | `evidence/*.md` | durable evidence reports | `HQ` | read-only |
+| `evidence/questions-gate-cache.jsonl` | the last PASSING input hash of the questions gate (#165) | `tests/test_questions.py`, and only after a run that PASSED | read-only; delete the file to force the next run |
 | `ONTOLOGY.md` | the canonical vocabulary | `HQ` | read-only, gated by `tests/test_ontology.py` |
 | `docs/processes.md` | the canonical process register | `HQ` | read-only |
 | this law | the process rules | `HQ` | read-only |
