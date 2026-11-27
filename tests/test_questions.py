@@ -37,8 +37,9 @@ input set can legitimately skip to ~0. The cache below does exactly that and NOT
 
 ### The one rule this cache is built around
 
-**A cache that can go stale-and-wrong is worse than no cache.** So the hash is a SUPERSET of
-the real read set, and every doubtful input resolves toward a MISS:
+**A cache that can go stale-and-wrong is worse than no cache.** So every doubtful input
+resolves toward a MISS, and the input set is either a complete strace-derived superset (files,
+node_modules) or an exact enumeration with a drift probe (env vars) -- never a guess:
 
 * Every input file is hashed BY CONTENT. The set was not guessed -- it was READ off
   `strace -f -e trace=openat,execve` of a real selftest run (287,640 trace lines), and the
@@ -51,12 +52,15 @@ the real read set, and every doubtful input resolves toward a MISS:
   so it would otherwise be an invisible input that could change under a matching hash.
 * The interpreter identity (`sys.version` + the resolved `sys.executable`) and `node
   --version` are hashed, because the renderer's behaviour is a property of the Node runtime.
-* EVERY environment variable matching `^(OC_|OPENCRABS_)` is hashed, sorted. The instrument
-  reads `OC_DEV_STATE`, `OC_PROFILE`, `OPENCRABS_PROFILE`, `OC_QUESTIONS_FACTORY`,
-  `OC_QUESTIONS_A2A_TIMEOUT`, `OC_QUESTIONS_TRACKER`, `OC_QUESTIONS_A2A`, `OC_QUESTIONS_DIR`
-  and more; the selftest overrides only SOME of them, so the rest are ambient inputs. Hashing
-  the whole prefix family is a deliberate superset -- it can only cause a MISS (re-run), never
-  a stale HIT, which is the only direction that is safe to be wrong in.
+* The environment variables the instrument READS are hashed BY NAME, enumerated from its own
+  source (`ENV_INPUTS`), never by prefix match. The prefix match `^(OC_|OPENCRABS_)` looks
+  like the safe superset and is the OPPOSITE on this box: `OPENCRABS_PIPESTATUS_FILE` is set
+  to `/tmp/opencrabs-pipestatus-<pid>-<n>` on every shell call, so a prefix hash misses
+  PERMANENTLY while every real input is byte-identical -- a cache that does nothing while
+  looking like it works. Superset reasoning is only safe when the extra inputs are stable;
+  here they are not, so the set is enumerated and `probe_the_env_set_covers_every_variable_the_instrument_reads`
+  reds the gate if the instrument grows a read this list does not carry.
+  `OPENCRABS_SESSION_ID` is deliberately EXCLUDED: it is read only to attribute a log line.
 * ANY unreadable input (missing file, unreadable directory, `node` absent) is a MISS with the
   reason printed. There is no path where an unreadable input becomes a hit.
 
@@ -354,8 +358,9 @@ def write_receipt(input_hash: str, facts: dict, checks: int) -> None:
             "Written by tests/test_questions.py after a PASSING selftest (#165). The gate "
             "skips to a stated PASS when its computed input hash matches `input_hash`. The "
             "hash covers every file, the whole node_modules tree, the interpreter and node "
-            "versions, and every OC_*/OPENCRABS_* env var -- a superset of the real read set "
-            "read off strace, so a mismatch can only cause a re-run, never a stale hit. "
+            "versions, and the OC_*/OPENCRABS_* env vars the instrument actually READS (by "
+            "name, enumerated from its source -- not by prefix match, which would miss "
+            "permanently on this box because OPENCRABS_PIPESTATUS_FILE carries a pid). "
             "Delete this file to force the next run."
         ),
     }
