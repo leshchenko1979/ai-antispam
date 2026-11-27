@@ -201,14 +201,24 @@ input to a hit.
 | Baseline (`evidence/scores/2026-11-27-self-audit.md`) | 65 | **1592.94 s** | **1028.81 s** |
 | Audit 1 (cold: cache MISS, selftest ran) | 64 | **837.57 s** | 7.53 s |
 | Audit 2 (warm: cache HIT) | 65 | **555.83 s** | 7.81 s |
+| Audit 3 (warm, re-run after a restart) | 65 | **535.34 s** | **1.81 s** |
 
-**The gate itself: 1028.81 s -> 7.53 s cold, 0.44-0.62 s warm.** Three consecutive warm runs
-all reported HIT and exit 0; the receipt's `recorded_at` was unchanged after audit 2, which is
-positive evidence the gate did not re-run rather than an absence of output.
+The first three rows were measured in the first pass. **Audit 3** is an independent re-run on a
+clean tree at `6e3a77d` after this session was killed and resumed, and it is the figure the
+final section of this document quotes. Its `1.81 s` against audit 2's `7.81 s` is the same
+effect the paragraph below describes — a warm gate still pays a cold-page-cache walk of the
+952-file tree once per process, so the *steady-state* gate cost is `0.29-0.44 s` and the
+per-audit cost is dominated by first-touch I/O.
 
-**Overall: 1592.94 s -> 555.83 s, a 65.11 % reduction.** The audit-2 number is the honest
-comparison against the 1592.94 s baseline because it carries the same 65 gates; audit 1 ran 64
-because the questions gate's own receipt was being established.
+**The gate itself: 1028.81 s -> 7.53 s cold, 0.29-0.44 s warm.** Three consecutive warm runs
+all reported HIT and exit 0 (`0.43 / 0.44 / 0.29 s`), and the receipt's `recorded_at` and mtime
+were unchanged after every audit, which is positive evidence the gate did not re-run rather
+than an absence of output.
+
+**Overall: 1592.94 s -> 555.83 s (65.11 %), and 535.34 s (66.39 %) on the like-for-like re-run.**
+The audit-2/3 numbers are the honest comparison against the 1592.94 s baseline because they
+carry the same 65 gates; audit 1 ran 64 because the questions gate's own receipt was being
+established.
 
 Two caveats stated rather than buried. First, the summed gate durations are the audit's own
 per-gate `(Xs)` figures added up, not a wall clock — the audit runs gates sequentially, so the
@@ -230,20 +240,50 @@ This is the same class as the #240 inversion fixed above, and neither was visibl
 the first needed a real audit run to surface, the second needed a reader who knew the two
 constants had to be reconciled.
 
-## Ledger rows: NOT written, and why
+## Ledger rows: intake + claim WRITTEN by the HQ lane; close still owed
 
-`tools/ledger.py append` refuses with `session b1903093-... matches no lane declared in 1
-fragment(s)`. That is correct behaviour: the live path accepts only a DERIVED actor, and
-`registry.all_bindings()` carries zero rows for this session — it is a headless session, not a
-Telegram lane bound to a factory topic, so there is no lane for it to resolve to. The
-`--actor` flag cannot override it (a declared actor that does not match the derived role is
-refused by the same law), and the only escape is `bootstrap`, which requires an EMPTY ledger
-and a `genesis` event. Forging a lane binding to satisfy the writer would be exactly the
-kind of false record the law exists to prevent, so the rows are left unwritten and stated
-here. **The board issue #165 remains OPEN** and should be closed by a session that resolves
-to a lane.
+`tools/ledger.py append` refuses from **this** session with `session b1903093-... matches no
+lane declared in 1 fragment(s)`. That is correct behaviour: the live path accepts only a
+DERIVED actor, and `registry.all_bindings()` returns 136 rows with none carrying
+`b1903093` — this is a headless builder session, not a Telegram lane bound to a factory
+topic. The `--actor` flag cannot override it (a declared actor that does not match the
+derived role is refused by the same law), and the only escape is `bootstrap`, which requires
+an EMPTY ledger and a `genesis` event. Forging a lane binding to satisfy the writer would be
+exactly the kind of false record the law exists to prevent.
 
-## Still to do
-1. Full audit run, twice (second must show the cache hit).
-2. Ledger rows: intake/claim/close. Close needs `--rework none` + `board=closed head=<sha>`.
-3. Do NOT push, do NOT commit to main. Leave in working tree / named branch.
+**The HQ lane did it legitimately instead.** `evidence/ledger.jsonl` carries:
+
+| n | ts | event | actor | subject |
+|---|---|---|---|---|
+| 577 | 2026-11-27T09:22:37Z | intake | hq | #165 |
+| 578 | 2026-11-27T09:22:46Z | claim | hq | #165 |
+
+Row 578 states the handover explicitly — *"HQ lane takes #165 from the headless builder
+session (b1903093), which could not resolve to a lane and correctly refused to forge a
+binding"* — and names the four things it verified first-hand. **The CLOSE row is therefore
+also the HQ lane's to write** (`--rework none`, trailer ending `board=closed head=<sha>`),
+after the board is closed. Writing it from here would need the same forged binding.
+
+## Final measured state (this session, re-verified after a restart)
+
+Full audit re-run end-to-end on a clean tree at `6e3a77d`:
+
+| | Gates | Summed gate durations | `test_questions.py` |
+|---|---|---|---|
+| Baseline (`evidence/scores/2026-11-27-self-audit.md`) | 65 | **1592.94 s** | **1028.81 s** |
+| Audit 2 (warm: cache HIT) | **65** | **535.34 s** | **1.81 s** |
+
+**65.11 % → 66.39 % reduction** on a like-for-like 65-gate comparison. The questions gate
+went **1028.81 s → 1.81 s**, and the receipt's mtime stayed at `09:40` through the audit —
+positive evidence it did not re-run, not merely an absence of output.
+
+One FAIL remains, and it is environmental, not a regression:
+`test_hygiene_branch_occupancy.py` asserts `primary_branch == refs/heads/main` and reads
+`refs/heads/165-audit-acceleration`. It reports **9 passed on `main`** and fails only because
+this work is on its own branch — which is the required disposition (do not commit to main).
+
+## Still to do (owner/HQ lane)
+
+1. Close board issue #165 (still OPEN).
+2. HQ lane writes the close row: `--rework none`, trailer `board=closed head=<sha>`.
+3. Do NOT push, do NOT commit to main. Work stays on `165-audit-acceleration`.
