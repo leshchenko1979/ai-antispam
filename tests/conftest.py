@@ -45,10 +45,31 @@ def _validate_llm_config_for_test_session() -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Restore the env defaults a run may have moved, and mute Logfire ONLY if it was on.
+
+    THE IMPORT IS GATED, AND THAT IS THE WHOLE POINT (#165). This hook used to call
+    `mute_logging_for_tests()` unconditionally, which imports `app.logging_setup` ->
+    `app.common.bot` -> `aiogram` at the END of EVERY session -- including the ~60 gate
+    sessions that never import an `app` module at all. Measured on this box 2026-11-27: a
+    one-test collection-only run through this file costs ~13 s WITH this import and ~2.5 s
+    without it, i.e. ~10 s per session spent importing aiogram purely to set a module-level
+    boolean that nothing in that process will read.
+
+    The mute is only MEANINGFUL when Logfire was actually initialised, and that happens in
+    exactly one place: `pytest_collection_finish` above, for a session that collected an
+    `integration`-marked test. So the guard is that same condition. The env resets stay
+    unconditional -- they are `os.environ` writes and cost nothing.
+    """
     global _session_has_integration
+    had_integration = _session_has_integration
     _session_has_integration = False
     os.environ.setdefault("SKIP_LOGFIRE", "1")
     os.environ.pop("PYTEST_CURRENT_TEST", None)
+    if not had_integration:
+        # No integration test ran, so `setup_logging` was never called and Logfire is off by
+        # the `SKIP_LOGFIRE` default. Nothing to mute, and `app.logging_setup` is never
+        # imported -- which is the ~10 s this branch saves on every unit-test session.
+        return
     from app.logging_setup import mute_logging_for_tests
 
     mute_logging_for_tests()
@@ -61,13 +82,28 @@ from unittest.mock import MagicMock
 import aiosqlite
 import asyncpg
 
-from app.database import (
-    Administrator,
-    create_schema,
-    drop_and_create_database,
-    postgres_connection,
-)
-from app.database.models import ModerationMode
+# THE APP IMPORTS ARE LAZY, AND THAT IS A COST DECISION, NOT A TIDINESS ONE (#165).
+#
+# `app.database` pulls in `app.database.group_operations` -> `app.common.bot` -> `aiogram`
+# -> `aiogram.types`, which is where the whole cost lives: measured 2026-11-27 on this box,
+# `import app.database` costs 9.47-11.95 s and `aiogram.types` alone is 5.6-6.7 s of it.
+# pytest imports `conftest.py` for EVERY session, so every `-m pytest` gate paid that import
+# whether or not a single test in it touched the database. Measured: `import conftest` alone
+# 24.26 s / 45.94 s, and `pytest --co` on a 14-test gate file 40.75 s wall for < 1 s of work.
+#
+# ZERO of the 16 `PYTEST_FORM_GATES` in `tools/audit.py` uses any fixture this module defines
+# from `app` -- `grep -E 'clean_db|test_pool|patched_get_pool|patched_db_conn'` returns 0 hits
+# in all 16. Only 8 non-gate test files use them, and those now pay the import when the
+# fixture is REQUESTED rather than at module import, which is the same instant they need it.
+#
+# So the names move into the fixtures that use them (`create_test_database`, `patched_db_conn`,
+# `sample_user`), and `postgres_connection` keeps its existing function-local import in
+# `patched_get_pool`. A name that no fixture requests is now never imported at all.
+#
+# THE TRADE: a module-level import fails at COLLECTION with a clear ImportError; a lazy one
+# fails when the fixture is first requested. That is acceptable here because the import is
+# unconditional inside every fixture that needs it -- there is no path where the failure
+# becomes a skip or a silent pass.
 
 # Test database settings - use SQLite for fast local testing
 USE_SQLITE = os.getenv("USE_SQLITE_TESTS", "true").lower() == "true"
@@ -590,6 +626,11 @@ async def create_test_database():
         print("Using SQLite for testing - no database creation needed")
         return
 
+    # Lazy (#165): only the PostgreSQL branch needs these, and the branch is unreachable
+    # under the SQLite default. Kept INSIDE the branch, after the early return, so a
+    # SQLite run never imports `app.database` for a fixture it will not exercise.
+    from app.database import create_schema, drop_and_create_database
+
     system_conn = await asyncpg.connect(
         host=PG_HOST, port=PG_PORT, user=PG_USER, password=PG_PASS, database="postgres"
     )
@@ -690,6 +731,10 @@ async def test_pool():
 @pytest.fixture(scope="session")
 def patched_db_conn(test_pool):
     """Fixture to patch the global database pool for tests"""
+    # Lazy (#165): the only use of `postgres_connection` in this module that is not already
+    # function-local, and it is inside a fixture body, so it costs nothing at collection.
+    from app.database import postgres_connection
+
     postgres_connection._pool = test_pool
     print("Database pool patched")
     yield
@@ -768,14 +813,31 @@ async def clean_db(patched_db_conn, test_pool):
                 await test_pool.release(conn)
 
 
-from aiogram.exceptions import TelegramBadRequest
+# LAZY VIA PEP 562 (#165). `from aiogram.exceptions import TelegramBadRequest` measured
+# 11.52 s / 15.96 s on this box on 2026-11-27 -- it is the single most expensive module-level
+# import this file carried, and pytest imports this module for EVERY session. Its only
+# consumer is `MockTelegramBadRequest`, and that class has exactly ONE user:
+# `tests/handlers/test_spam_handlers.py`, which is NOT a gate (`grep test_spam_handlers
+# tools/audit.py` = 0 hits). So all 16 `-m pytest` gates paid ~12 s for a mock none of them
+# touches.
+#
+# A module `__getattr__` (PEP 562) keeps the public name working -- `from tests.conftest import
+# MockTelegramBadRequest` still resolves, importing aiogram at THAT moment -- while the cost
+# moves to the one file that asks for it. The class is built once and cached on the module.
+def __getattr__(name: str):
+    """PEP 562 module attribute hook: build `MockTelegramBadRequest` on first request (#165)."""
+    if name != "MockTelegramBadRequest":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from aiogram.exceptions import TelegramBadRequest
 
+    class _MockTelegramBadRequest(TelegramBadRequest):
+        """Mock TelegramBadRequest for testing."""
 
-class MockTelegramBadRequest(TelegramBadRequest):
-    """Mock TelegramBadRequest for testing."""
+        def __init__(self, message):
+            super().__init__(MagicMock(), message)
 
-    def __init__(self, message):
-        super().__init__(MagicMock(), message)
+    globals()["MockTelegramBadRequest"] = _MockTelegramBadRequest
+    return _MockTelegramBadRequest
 
 
 @pytest.fixture
@@ -827,6 +889,11 @@ DEFAULT_SPAM_CONFIG = {
 
 @pytest.fixture
 def sample_user():
+    # Lazy (#165): `Administrator` and `ModerationMode` are the only two `app` names this
+    # module still references outside a fixture body, and both live here.
+    from app.database import Administrator
+    from app.database.models import ModerationMode
+
     return Administrator(
         admin_id=123456,
         username="testuser",
