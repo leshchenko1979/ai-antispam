@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from functools import cache
 from typing import Any
 
-import yaml
 from aiogram import types
 from aiogram.exceptions import (
     TelegramBadRequest,
@@ -155,12 +154,11 @@ def describe_exception(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
 
-def load_config() -> dict[str, Any]:
-    """Load config from config.yaml."""
-    with open("config.yaml", "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    logger.debug("Configuration loaded successfully")
-    return config
+# `load_config` lives in `config_loader` because this module imports `aiogram` at
+# module level, which made importing the function cost 8.41-11.06s against the
+# 0.10-0.14s of `yaml` it actually performs (#165 lever D). Re-exported here so
+# every existing `from ..common.utils import load_config` keeps working.
+from .config_loader import load_config
 
 
 def spam_notify_spammers_via_mcp_enabled() -> bool:

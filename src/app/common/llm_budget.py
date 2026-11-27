@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from .utils import load_config
+from .config_loader import load_config
 
 WEBHOOK_RESERVE_SECONDS = 10.0
 MIN_PER_ATTEMPT_SECONDS = 3.0
