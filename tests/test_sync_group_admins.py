@@ -14,6 +14,7 @@ and the rule that a demotion is a FLAG — a paying admin whose seat is gone mus
 keep being billed.
 """
 
+import functools
 import os
 import shutil
 import subprocess
@@ -404,11 +405,39 @@ def _run_script(args: list[str], *, cwd: str, env_extra: dict | None = None):
     )
 
 
-def test_cli_help_from_repo_root():
-    """`python3 scripts/sync_group_admins.py` — the bootstrap finds src/app."""
-    result = _run_script(
+@functools.cache
+def _help_probe_from_repo_root():
+    """The `--help` probe at REPO_ROOT, run ONCE and shared (#165 lever B).
+
+    `test_cli_help_from_repo_root` and `test_cli_dry_run_is_the_default` invoke the
+    IDENTICAL command -- `[sys.executable, "scripts/sync_group_admins.py", "--help"]`,
+    the same cwd, the same env -- and each spawn paid a fresh interpreter that imported
+    the whole app. Measured on this box 2026-11-27: the file was 38.19s wall for 16 tests,
+    of which these two probes were 9.99s and 9.03s and the third CLI probe
+    (`test_cli_help_via_pythonpath_only`, a DIFFERENT cwd and env) 12.26s.
+
+    WHY SHARING IS BEHAVIOUR-PRESERVING: `--help` is side-effect free by construction --
+    argparse prints usage and exits 0 without touching the database or Telegram -- so two
+    runs of it can only differ by noise, and both tests assert only on `returncode` and
+    `stdout`.
+
+    WHY THE MEMO IS THIS NARROW, and why it is NOT on `_run_script`. A general memo on the
+    runner would be a silent behaviour change for every CLI test in the file, and it would
+    be WRONG for `test_cli_help_via_pythonpath_only`: that one copies the script into a
+    tmp_path and passes `PYTHONPATH`, so its cwd and env differ and it must keep its own
+    run -- it is the probe that proves the container layout works, and serving it a cached
+    repo-root result would make it assert nothing. The memo is therefore a zero-argument
+    function pinned to exactly one (command, cwd, env) triple, so there is no key that can
+    collide with a different probe's.
+    """
+    return _run_script(
         ["scripts/sync_group_admins.py", "--help"], cwd=REPO_ROOT
     )
+
+
+def test_cli_help_from_repo_root():
+    """`python3 scripts/sync_group_admins.py` — the bootstrap finds src/app."""
+    result = _help_probe_from_repo_root()
     assert result.returncode == 0, result.stderr
     assert "--apply" in result.stdout
 
@@ -435,9 +464,7 @@ def test_cli_help_via_pythonpath_only(tmp_path):
 
 def test_cli_dry_run_is_the_default():
     """`--apply` is opt-in: a bare run must not be able to write."""
-    result = _run_script(
-        ["scripts/sync_group_admins.py", "--help"], cwd=REPO_ROOT
-    )
+    result = _help_probe_from_repo_root()
     assert result.returncode == 0, result.stderr
     # argparse wraps the help text, so compare on collapsed whitespace.
     collapsed = " ".join(result.stdout.split())

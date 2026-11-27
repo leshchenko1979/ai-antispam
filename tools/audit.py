@@ -1122,6 +1122,24 @@ GATE_WALLS_SEC: dict[str, float] = {
 # wall is the house 4x-of-worst precedent applied to the slowest measurement (40.6s -> 162.4)
 # and rounded DOWN to a round 150.0, which is 3.69x that worst and 4.0x the next one. Stated
 # as arithmetic rather than picked by feel (ai-antispam#64, #72).
+#
+# #165 lever A -- every pytest-form registration below carries `-p no:logfire
+# -p no:pytest_logfire`, and the reason is measured rather than stylistic. `logfire` and
+# `pytest_logfire` are BOTH registered pytest11 entry points (importlib.metadata, this box
+# 2026-11-27), and pytest's own boot pays for both. Measured, min-of-7, one trivial test
+# file run from the repo root: boot 1.94s with the plugins against 0.86s without -- a 1.1s
+# saving per session (67% of boot), on top of the 0.11s conftest import #165 already fixed.
+# Scoped to the GATE INVOCATIONS ONLY, never to `pytest.ini` addopts: four NON-gate test
+# files import logfire (`tests/common/test_logfire_lookup.py`,
+# `tests/handlers/test_channel_management.py`, `tests/handlers/test_status_handlers.py`,
+# `tests/database/test_admin_operations.py`), and a global `addopts` would refuse plugin
+# loading on their sessions too and break them. The wall lookup is NOT affected: the flags
+# are `-p` arguments and `_gate_wall_key` scans the command for the `.py` element, which
+# stays unique -- measured on `tests/test_audit_rates.py`, whose 90.0s wall still resolves.
+# NOT a helper function: `tests/gate_registry.py::registration_entries` classifies a
+# registration's RUNNER from the QUOTED literals of its own `gates_to_run.append`, and a
+# helper call renders as `<expr>` -- a script-runner reading, which fails the runner-form
+# gate (direction 4). The flags are repeated 20 times so the registrations stay readable.
 PYTEST_FORM_GATES: tuple[str, ...] = (
     "tests/test_audit_rates.py",
     "tests/test_binding_mechanism_exists.py",
@@ -1817,6 +1835,131 @@ def _gate_worker_count() -> int:
     return n
 
 
+def _pytest_batch_enabled() -> bool:
+    """Whether pytest-form gates run through ONE batched interpreter (#165, lever C).
+
+    DEFAULT OFF, and the numbers behind that decision are in `tools/pytest_gate_batch.py`'s
+    docstring: over the 20 live pytest-form gates, whole-command wall was 246.75s unbatched
+    and 68.71s batched (3.59x), with ZERO verdict divergences in either direction.
+
+    It still defaults OFF because the speedup is bought with HERMETICITY: the batch shares
+    one `sys.modules` across files, so gate N sees whatever module state gate 1 left behind.
+    No divergence was observed on this tree, but "no divergence observed" is not "cannot
+    diverge", and the same disposition was taken for `AUDIT_GATE_WORKERS` above. The knob
+    exists so the claim can be re-tested on a quiet box without editing code.
+
+    Read as a BOOLEAN, and a value this does not recognise is a WARNING plus the default --
+    the `_gate_worker_count` rule, for the same reason: a typo must not silently change the
+    audit's behaviour.
+    """
+    raw = os.environ.get("AUDIT_PYTEST_BATCH", "").strip().lower()
+    if not raw:
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    print(f"AUDIT_PYTEST_BATCH={raw!r} is not a boolean -- using the default (off)")
+    return False
+
+def _is_pytest_form(cmd: list[str]) -> bool:
+    """True for a `[python, -m, pytest, <file>, ...]` registration, read structurally.
+
+    NOT a substring test: `tests/test_pytest_form.py` would match a naive search for
+    "pytest" while being a script invocation. The runner is the `-m pytest` PAIR, which is
+    the same predicate `tests/gate_registry.py::_runner_of` uses to classify a registration.
+    """
+    return any(
+        token == "pytest" and i > 0 and cmd[i - 1] == "-m"
+        for i, token in enumerate(cmd)
+    )
+
+def _batched_result(cmd: list[str], record: dict[str, Any] | None, budget_sec: float) -> dict[str, Any]:
+    """One gate's `run_gate`-shaped result from the batch driver's JSON record.
+
+    `record is None` means the batch produced NO line for this file -- it was killed by the
+    batch's single wall, or the driver died. That is UNKNOWN, never a pass and never a
+    FAIL: nothing was measured, and the audit already has a distinct code for exactly this
+    (the same `TIMEOUT_EXIT_CODE`/`unknown: True` pair `run_gate` uses for a kill).
+    """
+    if record is None:
+        return {
+            "cmd": " ".join(cmd),
+            "exit_code": TIMEOUT_EXIT_CODE,
+            "passed": False,
+            "unknown": True,
+            "duration_sec": round(budget_sec, 2),
+            "duration_is_lower_bound": True,
+            "budget_sec": budget_sec,
+            "attempts": 1,
+            "retried": False,
+            "stdout": "",
+            "stderr": (
+                "the batched driver produced no result line for this file: it was killed "
+                f"by the batch wall at {budget_sec:.2f}s or the driver died -- UNKNOWN, no "
+                "verdict taken"
+            ),
+        }
+    code = int(record["exit_code"])
+    return {
+        "cmd": " ".join(cmd),
+        "exit_code": code,
+        "passed": code == 0,
+        # The driver has no per-file timeout (see its docstring), so an exit here is a real
+        # exit and never the kill code -- unless the file itself chose it, which run_gate's
+        # own rule already treats as UNKNOWN.
+        "unknown": code == TIMEOUT_EXIT_CODE,
+        "duration_sec": record["duration_sec"],
+        "duration_is_lower_bound": False,
+        "budget_sec": budget_sec,
+        "attempts": 1,
+        "retried": False,
+        "stdout": record.get("output_tail", ""),
+        "stderr": "",
+    }
+
+def _run_pytest_batch(
+    cmd: list[str], paths: list[str], repo_root: Path, budget_sec: float
+) -> dict[str, dict[str, Any]]:
+    """Run `paths` through `tools/pytest_gate_batch.py`; return `{path: result}`.
+
+    ONE budget for the whole batch, because the driver cannot bound a single file (a
+    SIGALRM inside pytest is recorded as a test FAILURE, i.e. a hang would be published as
+    a verdict). The budget is the SUM of the files' declared walls, so the batch is allowed
+    exactly the time the unbatched audit would have allowed the same gates one at a time.
+
+    A driver that fails to launch, or exits without printing a line for a file, leaves that
+    file absent from the mapping and `_batched_result` reports it UNKNOWN.
+    """
+    driver = repo_root / "tools/pytest_gate_batch.py"
+    if not driver.is_file():
+        return {}
+    try:
+        res = subprocess.run(
+            [cmd[0], str(driver), *paths],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=budget_sec,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(f"pytest batch driver did not complete ({type(exc).__name__}) -- its gates are UNKNOWN")
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for line in res.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        path = record.get("path")
+        if isinstance(path, str):
+            out[path] = record
+    return out
+
 def _run_gate_set(gates_to_run: list[list[str]], repo_root: Path) -> list[dict[str, Any]]:
     """Run every gate and return the results IN REGISTRATION ORDER.
 
@@ -1851,11 +1994,34 @@ def _run_gate_set(gates_to_run: list[list[str]], repo_root: Path) -> list[dict[s
     workers = _gate_worker_count()
     if workers == 1:
         # The historical path, kept byte-for-byte: sequential, in order, one line per gate.
+        # The ONE change is the pytest-form batch (#165 lever C), which is OFF by default and
+        # only reorders HOW the same gates run -- never which ones, and never their order in
+        # the returned list (see below).
+        batched: dict[str, dict[str, Any]] = {}
+        if _pytest_batch_enabled():
+            pytest_paths = [
+                _gate_wall_key(cmd)
+                for cmd in gates_to_run
+                if _is_pytest_form(cmd)
+            ]
+            if pytest_paths:
+                batch_budget = sum(_gate_wall(cmd) for cmd in gates_to_run if _is_pytest_form(cmd))
+                print(
+                    f"pytest batch: {len(pytest_paths)} gate(s) through one interpreter "
+                    f"(AUDIT_PYTEST_BATCH) -- budget {batch_budget:.2f}s"
+                )
+                batched = _run_pytest_batch(
+                    [gate_python()], pytest_paths, repo_root, batch_budget
+                )
         results = []
         for cmd in gates_to_run:
             wall = _gate_wall(cmd)
             if wall == DEFAULT_GATE_WALL_SEC:
                 print(f"gate budget: {_gate_wall_key(cmd)} uses the declared default {DEFAULT_GATE_WALL_SEC}s")
+            if _is_pytest_form(cmd) and batched:
+                key = _gate_wall_key(cmd)
+                results.append(_batched_result(cmd, batched.get(key), wall))
+                continue
             results.append(run_gate(cmd, repo_root, budget_sec=wall))
         return results
 
@@ -1962,6 +2128,17 @@ def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
     if (repo_root / "tests/test_audit_yield.py").is_file():
         gates_to_run.append([gate_python(), "tests/test_audit_yield.py"])
 
+    # #165 lever C -- the batched pytest driver's correctness contract: a broken file is
+    # reported as THAT file, the knob is off by default, and a file with no result line is
+    # UNKNOWN rather than passed. SCRIPT form, and the choice is measured rather than
+    # stylistic: the file is DUAL-form (`gate_registry.dual_form` -> `(True, ())`), so its
+    # `__main__` runs every check the pytest wrappers do, and the script path costs one
+    # interpreter with no pytest session at all -- while the pytest form would pay the
+    # `tests/conftest.py` session cost the driver's own docstring measures at ~8s. Measured
+    # 2026-11-27: script 1.59s wall, `-m pytest` 8.96s wall, same 7 checks green either way.
+    if (repo_root / "tests/test_audit_pytest_batch.py").is_file():
+        gates_to_run.append([gate_python(), "tests/test_audit_pytest_batch.py"])
+
     # 10. Gate-note population (2026-09-25) -- the scorecard must state the
     # POPULATION a failing gate reported, not its final item. Measured: the
     # schema gate found 3 violations and the scorecard named 1, so a triager
@@ -2007,7 +2184,7 @@ def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
         # pass, not a fast one. (Same class as the pytest-mode close-preflight gate;
         # #64's per-gate wall makes the honest invocation affordable.)
         gates_to_run.append(
-            [gate_python(), "-m", "pytest", "tests/test_cron_thinness.py", "-q"]
+            [gate_python(), "-m", "pytest", "tests/test_cron_thinness.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"]
         )
 
     # 14. The patrol RUNNER's own wiring, as its own row (#163, adoption round).
@@ -2133,19 +2310,19 @@ def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
     # registration gate's declared -> registered direction sees it the moment it lands --
     # an unregistered gate never runs.
     if (repo_root / "tests/test_audit_interpreter_binding.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_interpreter_binding.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_interpreter_binding.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     # #158 clause 3 -- the requires-python preflight: a run whose interpreter violates
     # pyproject.toml's declaration is REFUSED before a gate launches, quoting the declaration.
     # Pytest form for the same reason as the binding gate above: module-level `def test_*`
     # arms with a `__main__` driver, and a script-form registration against that shape is the
     # direction-5 mismatch `test_gate_registration.py` exists to catch.
     if (repo_root / "tests/test_audit_requires_python_preflight.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_requires_python_preflight.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_requires_python_preflight.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     # #158 clause 2 -- the environment leg: gate rows that died with `ModuleNotFoundError` for
     # a DECLARED distribution collapse into ONE cause naming the interpreter, while every row
     # stays FAILED in the verdict. Pytest form, same reasoning.
     if (repo_root / "tests/test_audit_env_classification.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_env_classification.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_env_classification.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_audit_tree_condition.py").is_file():
         gates_to_run.append([gate_python(), "tests/test_audit_tree_condition.py"])
     if (repo_root / "tests/test_board_intake_recorded.py").is_file():
@@ -2199,33 +2376,33 @@ def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
     # pytest form — no `__main__`, so a bare-script registration would execute
     # ZERO checks and exit 0. The wall is declared in GATE_WALLS_SEC above.
     if (repo_root / "tests/test_binding_mechanism_exists.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_binding_mechanism_exists.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_binding_mechanism_exists.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_close_telemetry_provenance.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_close_telemetry_provenance.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_close_telemetry_provenance.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_hygiene_inflight.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_inflight.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_inflight.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_hygiene_namespace.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_namespace.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_namespace.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_hygiene_build_residue.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_build_residue.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_build_residue.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_hygiene_declaration_sweep.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_declaration_sweep.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_declaration_sweep.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_hygiene_stale_dirs.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_stale_dirs.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_stale_dirs.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_hygiene_branch_occupancy.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_branch_occupancy.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_hygiene_branch_occupancy.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_insights_gate_recorded.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_insights_gate_recorded.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_insights_gate_recorded.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_ledger_close_preflight.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_ledger_close_preflight.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_ledger_close_preflight.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_ledger_event_authorized.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_ledger_event_authorized.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_ledger_event_authorized.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_registry_attest.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_registry_attest.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_registry_attest.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_registry_render.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_registry_render.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_registry_render.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     if (repo_root / "tests/test_score_gate_recorded.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_score_gate_recorded.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_score_gate_recorded.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     # Registered under #135: the daily self-audit's push leg. `git push <remote> main` pushes a
     # REF, not a commit, so an unconditional push in step 3 ships whatever held leg happens to
     # be on main (measured 2026-11-08: 19 commits ahead of origin, all of them the owner-gated
@@ -2234,14 +2411,14 @@ def execute_mechanical_gates(repo_root: Path) -> list[dict[str, Any]]:
     # coupling in a throwaway two-remote sandbox. pytest form, so a bare-script registration
     # would execute ZERO checks and exit 0.
     if (repo_root / "tests/test_self_audit_push_gate.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_self_audit_push_gate.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_self_audit_push_gate.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     # Registered under #126: the reporting contract's own gate -- both rework rate FORMS
     # with their denominators, the outcome partition for run AND close rows, the rework
     # declaration population, the change fail rate with its linkage coverage, and the
     # cost-per-successful-task rate. It is pytest form (18 test functions, no `__main__`),
     # so a bare-script registration would execute ZERO checks and exit 0.
     if (repo_root / "tests/test_audit_rates.py").is_file():
-        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_rates.py", "-q"])
+        gates_to_run.append([gate_python(), "-m", "pytest", "tests/test_audit_rates.py", "-q", "-p", "no:logfire", "-p", "no:pytest_logfire"])
     return _run_gate_set(gates_to_run, repo_root)
 
 
